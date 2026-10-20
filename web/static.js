@@ -115,12 +115,12 @@ async function addPred(m) { try { await ensurePlayers(); const f = n => { const 
 const frac = f => { const [a, b] = String(f).split('/').map(Number); return b ? 1 + a / b : null };
 async function sofaDetail(onChange) { let i = 0;
   const step = async () => { let wait = 600;
-    try { const L = ST.all.filter(m => m.status === 'live' && m.ssid && (!m.server || m.srv_src === 'pbp' || (!m.odds && !(m.ss_odds_t > Date.now() - 60000))));
+    try { const L = ST.all.filter(m => m.status === 'live' && m.ssid && (((!m.server || m.srv_src === 'pbp') && !m.no_pbp) || (!m.odds && !(m.ss_odds_t > Date.now() - 60000))));
       if (L.length && !document.hidden) { const m = L[i++ % L.length]; const ch = [];
-        if (!m.server || m.srv_src === 'pbp') { const d = await j(`https://api.sofascore1.com/api/v1/event/${m.ssid}/point-by-point`); const g = d.pointByPoint?.[0]?.games?.[0];
+        if ((!m.server || m.srv_src === 'pbp') && !m.no_pbp) { const d = await j(`https://api.sofascore1.com/api/v1/event/${m.ssid}/point-by-point`).catch(e => { if (/404/.test(e)) { m.no_pbp = true; return {} } throw e }); const g = d.pointByPoint?.[0]?.games?.[0];
           if (g && g.score && g.score.serving) { const sv = m.ss_same ? g.score.serving : 3 - g.score.serving; const s = m.sets; m.pbp_srv = sv; m.pbp_g = totG(s);
             if (m.server !== sv) { m.server = sv; m.srv_src = 'pbp'; liveCalc(m); ch.push(m.id) } } }
-        if (!m.odds && !(m.ss_odds_t > Date.now() - 60000)) { m.ss_odds_t = Date.now(); const d = await j(`https://api.sofascore1.com/api/v1/event/${m.ssid}/odds/1/featured`);
+        if (!m.odds && !(m.ss_odds_t > Date.now() - 60000)) { m.ss_odds_t = Date.now(); const d = await j(`https://api.sofascore1.com/api/v1/event/${m.ssid}/odds/1/featured`).catch(e => { if (/404/.test(e)) return {}; throw e });
           const f = d.featured?.default; if (f && f.marketId === 1 && !f.suspended) { const c = {}; for (const x of f.choices || []) c[x.name] = frac(x.fractionalValue);
             let a = c['1'], b = c['2']; if (!m.ss_same) [a, b] = [b, a]; if (a > 1 && b > 1) { m.odds = { best_a: +a.toFixed(2), best_b: +b.toFixed(2), n: 1, fair_a: (1 / a) / (1 / a + 1 / b) }; m.odds_src = 'Sofascore'; m.odds_t = Date.now(); m.odds_table = [{ bookmaker: 'Sofascore (průměr trhu)', a: +a.toFixed(2), b: +b.toFixed(2) }]; liveCalc(m); ch.push(m.id) } } }
         if (ch.length) onChange(ch) } ST.srcOk.sofaDetail = Date.now(); delete ST.srcOk.sofaDetailErr }
