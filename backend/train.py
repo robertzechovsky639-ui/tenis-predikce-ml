@@ -30,8 +30,8 @@ def main():
     gbm = lgb.train(params, dfit, 2000, valid_sets=[dval], callbacks=[lgb.early_stopping(50, verbose=False)])
     best = gbm.best_iteration; print("LightGBM iterací:", best)
     p_gbm = gbm.predict(te[F.FEATURES], num_iteration=best)
-    sc = StandardScaler().fit(tr[F.FEATURES]); lr = LogisticRegression(max_iter=2000, C=1.0).fit(sc.transform(tr[F.FEATURES]), tr.y)
-    p_lr = lr.predict_proba(sc.transform(te[F.FEATURES]))[:, 1]
+    sc = StandardScaler().fit(tr[F.FEATURES].fillna(0)); lr = LogisticRegression(max_iter=2000, C=1.0).fit(sc.transform(tr[F.FEATURES].fillna(0)), tr.y)
+    p_lr = lr.predict_proba(sc.transform(te[F.FEATURES].fillna(0)))[:, 1]
     p_elo = te.elo_p.values
     ra, rb = te.rank_a.fillna(5000).values, te.rank_b.fillna(5000).values
     p_rank = np.where(ra < rb, 0.65, np.where(ra > rb, 0.35, 0.5))  # baseline: lépe postavený vyhraje
@@ -47,7 +47,7 @@ def main():
     imp = gbm.feature_importance("gain"); rep["importance"] = {f: round(float(v / imp.sum()), 4) for f, v in zip(F.FEATURES, imp)}
     # finální model: přetrénovat na všech datech se stejným počtem iterací
     gbm_all = lgb.train(params, lgb.Dataset(X[F.FEATURES], X.y), best)
-    sc_all = StandardScaler().fit(X[F.FEATURES]); lr_all = LogisticRegression(max_iter=2000).fit(sc_all.transform(X[F.FEATURES]), X.y)
+    sc_all = StandardScaler().fit(X[F.FEATURES].fillna(0)); lr_all = LogisticRegression(max_iter=2000).fit(sc_all.transform(X[F.FEATURES].fillna(0)), X.y)
     gbm_all.save_model(str(OUT / "gbm.txt"))
     pickle.dump(dict(scaler=sc_all, lr=lr_all, features=F.FEATURES), open(OUT / "logreg.pkl", "wb"))
     pickle.dump(F.freeze(st), open(OUT / "state.pkl", "wb"))

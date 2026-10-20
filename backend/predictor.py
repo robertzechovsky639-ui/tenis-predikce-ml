@@ -8,7 +8,8 @@ import features as F
 MD = F.ROOT / "data" / "model"
 NAMES_CZ = {"elo_d": "Elo celkové", "selo_d": "Elo na povrchu", "elo_p": "Elo očekávání", "logrank_d": "Žebříček",
             "form_d": "Forma (posl. 10 zápasů)", "fat_d": "Zápasy za 14 dní (únava)", "inact_d": "Neaktivita (dny bez zápasu)",
-            "h2h_d": "Vzájemné zápasy (H2H)", "exp_d": "Forma vs. očekávání Elo (60 dní)", "age_d": "Věk", "unc_d": "Nejistota ratingu"}
+            "h2h_d": "Vzájemné zápasy (H2H)", "exp_d": "Forma vs. očekávání Elo (60 dní)", "age_d": "Věk", "unc_d": "Nejistota ratingu",
+            "spw_d": "Body vyhrané na podání", "rpw_d": "Body vyhrané na returnu"}
 
 def toks(s):
     s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode().lower()
@@ -63,7 +64,9 @@ class Predictor:
         def pf(p):
             last = s["last"].get(p); r = s["recent"].get(p, [])
             rs = [x for d, x in s["resid"].get(p, []) if day - d <= 60]
-            return dict(elo=s["elo"].get(p, 1500.0), selo=s["selo"].get((p, surf), 1500.0), n=s["n"].get(p, 0),
+            sv = s.get("srv", {}).get(p) or []
+            return dict(spw=float(np.mean([x[0] for x in sv])) if sv else np.nan, rpw=float(np.mean([x[1] for x in sv])) if sv else np.nan,
+                        elo=s["elo"].get(p, 1500.0), selo=s["selo"].get((p, surf), 1500.0), n=s["n"].get(p, 0),
                         inact=min(day - last, 365) if last else 365, fat=sum(1 for d in s["dates"].get(p, []) if day - d <= 14),
                         form=sum(r) / len(r) if r else 0.5, rank=s["rank"].get(p) or 2000, exp=float(np.mean(rs)) if rs else 0.0,
                         age=s["age"].get(p) or 25.0)
@@ -72,7 +75,8 @@ class Predictor:
                     logrank_d=math.log(B["rank"]) - math.log(A["rank"]), form_d=A["form"] - B["form"], fat_d=A["fat"] - B["fat"],
                     inact_d=A["inact"] - B["inact"], h2h_d=h.get((a, b), 0) - h.get((b, a), 0), exp_d=A["exp"] - B["exp"],
                     age_d=A["age"] - B["age"], unc_d=math.log1p(A["n"]) - math.log1p(B["n"]), level=level, best_of=best_of,
-                    surf_clay=int(surf == "Clay"), surf_grass=int(surf == "Grass"), is_qual=q, female=female)
+                    surf_clay=int(surf == "Clay"), surf_grass=int(surf == "Grass"), is_qual=q, female=female,
+                    spw_d=A["spw"] - B["spw"], rpw_d=A["rpw"] - B["rpw"])
 
     def predict(self, a, b, surf="Hard", level=2, best_of=3, q=0, female=0):
         f = self.feats(a, b, surf, level, best_of, q, female)
@@ -80,11 +84,11 @@ class Predictor:
         # symetrizace: průměr p(A,B) a 1-p(B,A)
         fb = self.feats(b, a, surf, level, best_of, q, female); xb = np.array([[fb[k] for k in F.FEATURES]])
         p = float((self.gbm.predict(x)[0] + 1 - self.gbm.predict(xb)[0]) / 2)
-        z = self.sc.transform(x)[0]; contrib = z * self.lr.coef_[0]
+        x0 = np.nan_to_num(x, nan=0.0); z = self.sc.transform(x0)[0]; contrib = z * self.lr.coef_[0]
         factors = sorted([dict(key=k, label=NAMES_CZ[k], value=round(float(c), 3), favors="A" if c > 0 else "B")
                           for k, c in zip(F.FEATURES, contrib) if k in NAMES_CZ and abs(c) > 0.01], key=lambda d: -abs(d["value"]))
         h = self.s["h2h"]
-        return dict(p=p, p_lr=float(self.lr.predict_proba(self.sc.transform(x))[0, 1]), elo_p=f["elo_p"], factors=factors[:7],
+        return dict(p=p, p_lr=float(self.lr.predict_proba(self.sc.transform(x0))[0, 1]), elo_p=f["elo_p"], factors=factors[:7],
                     h2h=[h.get((a, b), 0), h.get((b, a), 0)])
 
     def h2h_list(self, a, b, n=15):

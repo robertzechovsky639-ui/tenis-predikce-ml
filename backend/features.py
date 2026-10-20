@@ -8,8 +8,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 RAW = ROOT / "data" / "raw"
 SURFS = ["Hard", "Clay", "Grass", "Carpet"]
 ROUND_ORD = {"Q1": 0, "Q2": 1, "Q3": 2, "Q4": 3, "ER": 4, "R128": 5, "R64": 6, "R32": 7, "R16": 8, "QF": 9, "SF": 10, "BR": 11, "F": 12, "RR": 8}
-FEATURES = ["elo_d", "selo_d", "elo_p", "logrank_d", "form_d", "fat_d", "inact_d", "h2h_d", "exp_d", "age_d",
+SRV_FEATURES = ["spw_d", "rpw_d"]  # podání/return z posledních 20 zápasů se statistikami (v3: log loss 0,5646 -> 0,5633)
+BASE_FEATURES = ["elo_d", "selo_d", "elo_p", "logrank_d", "form_d", "fat_d", "inact_d", "h2h_d", "exp_d", "age_d",
             "unc_d", "level", "best_of", "surf_clay", "surf_grass", "is_qual", "female"]
+FEATURES = BASE_FEATURES + SRV_FEATURES
 LEVEL_CODE = {"ITF": 0, "Challenger": 1, "ATP": 2, "WTA": 2, "G": 3}
 
 def circuit_of(fname, lvl, rnd):
@@ -30,7 +32,8 @@ def load():
         files.append(p)
     dfs = []
     cols = ["tourney_id", "tourney_name", "surface", "tourney_level", "tourney_date", "match_num", "winner_id", "winner_name",
-            "winner_age", "loser_id", "loser_name", "loser_age", "score", "best_of", "round", "winner_rank", "loser_rank"]
+            "winner_age", "loser_id", "loser_name", "loser_age", "score", "best_of", "round", "winner_rank", "loser_rank",
+            "w_svpt", "w_1stWon", "w_2ndWon", "l_svpt", "l_1stWon", "l_2ndWon"]
     for p in files:
         d = pd.read_csv(p, usecols=lambda c: c in cols, low_memory=False, encoding="latin-1" if False else "utf-8", encoding_errors="replace")
         g = "W" if p.name.startswith("wta") else "M"
@@ -153,6 +156,7 @@ class State:
         self.last = {}; self.recent = defaultdict(lambda: deque(maxlen=10))
         self.dates = defaultdict(lambda: deque(maxlen=40))
         self.resid = defaultdict(lambda: deque(maxlen=60))  # (ordinal date, actual-expected)
+        self.srv = defaultdict(lambda: deque(maxlen=20))  # (podíl vyhraných bodů na podání, na returnu)
         self.h2h = defaultdict(int); self.rank = {}; self.age = {}; self.name = {}; self.gender = {}; self.rank_date = {}
 
     def player_feats(self, p, surf, day):
@@ -163,7 +167,9 @@ class State:
         rk = self.rank.get(p) or 2000
         rs = [x for d, x in self.resid[p] if day - d <= 60]
         exp = float(np.mean(rs)) if rs else 0.0
-        return dict(elo=self.elo[p], selo=self.selo[(p, surf)], n=self.n[p], inact=inact, fat=fat, form=form,
+        sv = self.srv.get(p)
+        spw = float(np.mean([x[0] for x in sv])) if sv else np.nan; rpw = float(np.mean([x[1] for x in sv])) if sv else np.nan
+        return dict(spw=spw, rpw=rpw, elo=self.elo[p], selo=self.selo[(p, surf)], n=self.n[p], inact=inact, fat=fat, form=form,
                     rank=rk, exp=exp, age=self.age.get(p) or 25.0)
 
     def row(self, a, b, surf, day, level, best_of, q, female):
@@ -173,7 +179,17 @@ class State:
             logrank_d=math.log(B["rank"]) - math.log(A["rank"]), form_d=A["form"] - B["form"], fat_d=A["fat"] - B["fat"],
             inact_d=A["inact"] - B["inact"], h2h_d=self.h2h[(a, b)] - self.h2h[(b, a)], exp_d=A["exp"] - B["exp"],
             age_d=A["age"] - B["age"], unc_d=math.log1p(A["n"]) - math.log1p(B["n"]), level=level, best_of=best_of,
-            surf_clay=int(surf == "Clay"), surf_grass=int(surf == "Grass"), is_qual=q, female=female)
+            surf_clay=int(surf == "Clay"), surf_grass=int(surf == "Grass"), is_qual=q, female=female,
+            spw_d=A["spw"] - B["spw"], rpw_d=A["rpw"] - B["rpw"])
+
+    def add_stats(self, w, l, r):
+        try:
+            ws, ls = float(r.w_svpt), float(r.l_svpt)
+            if not (ws > 10 and ls > 10): return
+            wsp = (float(r.w_1stWon) + float(r.w_2ndWon)) / ws; lsp = (float(r.l_1stWon) + float(r.l_2ndWon)) / ls
+            if not (0 < wsp < 1 and 0 < lsp < 1): return
+            self.srv[w].append((wsp, 1 - lsp)); self.srv[l].append((lsp, 1 - wsp))
+        except (TypeError, ValueError, AttributeError): return
 
     def update(self, w, l, surf, day):
         ew, el = self.elo[w], self.elo[l]; e = expct(ew, el)
@@ -205,11 +221,11 @@ def build(df, seed=7):
         for p, rk, ag in ((w, r.winner_rank, r.winner_age), (l, r.loser_rank, r.loser_age)):
             if rk == rk and rk: st.rank[p] = float(rk); st.rank_date[p] = day
             if ag == ag and ag: st.age[p] = float(ag)
-        st.update(w, l, surf, day)
+        st.update(w, l, surf, day); st.add_stats(w, l, r)
     return pd.DataFrame(rows), st
 
 def freeze(st):
     """Převede stav na obyčejné dicty pro pickle."""
     d = {k: (dict(v) if isinstance(v, defaultdict) else v) for k, v in st.__dict__.items()}
-    for k in ("recent", "dates", "resid"): d[k] = {p: list(q) for p, q in d[k].items()}
+    for k in ("recent", "dates", "resid", "srv"): d[k] = {p: list(q) for p, q in d[k].items()}
     return d

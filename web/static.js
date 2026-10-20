@@ -95,8 +95,9 @@ async function srcSofa(changed) { const upd = mkUpd(changed); const d = await j(
       m = { id: 'ss-' + e.id, src: 'Sofascore', circuit: circ, g, tournament: e.tournament?.name || '', surface: SS_SURF(e.groundType), round: e.roundInfo?.name || '',
         qual: /qualif/i.test(e.tournament?.name + ' ' + (e.roundInfo?.name || '')) ? 1 : 0, ts: e.startTimestamp, status: 'live', sets: [], winner: 0, best_of: 3, fs: null,
         players: [{ name: H.name, country: H.country?.alpha3 || '' }, { name: A.name, country: A.country?.alpha3 || '' }], pids: [null, null], pred: null, odds: null, day: 0 };
-      await addPred(m); ST.all.push(m); ST.byId[m.id] = m; indexM(m); changed.add(m.id); ST.added = true }
-    const same = lastTok(H.name) === lastTok(m.players[0].name); m.ssid = e.id; m.ss_same = same; const hs = e.homeScore || {}, as = e.awayScore || {};
+      m.players[0].ranking = H.ranking; m.players[1].ranking = A.ranking; await addPred(m); if (m.pred == null) rankPred(m); ST.all.push(m); ST.byId[m.id] = m; indexM(m); changed.add(m.id); ST.added = true }
+    const same = lastTok(H.name) === lastTok(m.players[0].name); m.ssid = e.id; m.ss_same = same;
+    if (m.pred == null) { m.players[same ? 0 : 1].ranking ??= H.ranking; m.players[same ? 1 : 0].ranking ??= A.ranking; if (ST.players && rankPred(m)) changed.add(m.id) } const hs = e.homeScore || {}, as = e.awayScore || {};
     const sets = []; for (let i = 1; i <= 5; i++) if (hs['period' + i] !== undefined) sets.push([hs['period' + i] | 0, as['period' + i] | 0]);
     const st = e.status?.type;
     upd(m, m => { if (st === 'inprogress') { m.status = 'live'; let p = [SPT[hs.point] ?? (+hs.point || 0), SPT[as.point] ?? (+as.point || 0)];
@@ -139,13 +140,41 @@ async function scheduleFallback(onChange) { const run = async () => { try {
       const m = { id: 's365-' + g.id, src: '365scores', circuit: circ, g: gender, tournament: (g.competitionDisplayName || cn).replace(/ - .*$/, ''), surface: 'Hard', round: g.stageName || '',
         qual: /qualif/i.test(g.stageName || '') ? 1 : 0, ts: Date.parse(g.startTime) / 1000, status: 'upcoming', sets: [], winner: 0, best_of: 3, fs: null,
         players: [{ name: h.name, country: '' }, { name: a.name, country: '' }], pids: [null, null], pred: null, odds: null };
-      m.day = dayOf(m.ts); await addPred(m); ST.all.push(m); ST.byId[m.id] = m; indexM(m); ch.push(m.id); ST.added = true }
+      m.day = dayOf(m.ts); await addPred(m); if (m.pred == null) rankPred(m); ST.all.push(m); ST.byId[m.id] = m; indexM(m); ch.push(m.id); ST.added = true }
     ST.srcOk.schedule = Date.now(); if (ch.length) onChange(ch) } catch (e) { ST.srcOk.scheduleErr = String(e) } setTimeout(run, 300000) };
   setTimeout(run, !ST.generated || Date.now() / 1000 - ST.generated > 1800 ? 1000 : 60000) }
 function health() { const now = Date.now(); return Object.keys(SOURCES).concat(['sofaDetail']).map(k => { const ok = ST.srcOk[k], err = ST.srcOk[k + 'Err'];
   return { k, state: err && !(ok > now - 10000) ? 'err' : ok > now - 15000 ? 'ok' : 'wait' } }) }
+// ---------- rozpis všech úrovní (ATP, WTA, Challenger, ITF muži/ženy, kvalifikace) ze Sofascore: dnes + zítra, každých 10 min ----------
+const SS_CATS = [3, 6, 72, 785, 213];
+function sofaEventToMatch(e) { const H = e.homeTeam || {}, A = e.awayTeam || {}; if (H.type !== 1 || A.type !== 1) return null;
+  const circ = SS_CIRC[e.tournament?.category?.name]; if (!circ) return null; const g = H.gender === 'F' ? 'W' : 'M'; const st = e.status?.type;
+  return { id: 'ss-' + e.id, ssid: e.id, ss_same: true, src: 'Sofascore', circuit: circ, g, tournament: (e.tournament?.name || '').replace(/, (Qualifying|Doubles).*$/, ''), surface: SS_SURF(e.groundType),
+    round: e.roundInfo?.name || '', qual: /qualif/i.test((e.tournament?.name || '') + ' ' + (e.roundInfo?.name || '')) ? 1 : 0, ts: e.startTimestamp,
+    status: st === 'inprogress' ? 'live' : st === 'finished' ? 'finished' : 'upcoming', sets: [], winner: e.winnerCode || 0, best_of: 3, fs: null,
+    players: [{ name: H.name, country: H.country?.alpha3 || '', ranking: H.ranking }, { name: A.name, country: A.country?.alpha3 || '', ranking: A.ranking }], pids: [null, null], pred: null, odds: null } }
+async function sofaSchedule(onChange) { const run = async () => { const ch = []; let ok = 0;
+    const iso = d => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}` };
+    const days = [iso(Date.now()), iso(Date.now() + 864e5)];
+    await Promise.all(SS_CATS.flatMap(c => days.map(d => j(`https://api.sofascore1.com/api/v1/category/${c}/scheduled-events/${d}`).then(r => { ok++;
+      for (const e of r.events || []) { if (e.status?.type !== 'notstarted') continue; const m0 = sofaEventToMatch(e); if (!m0) continue;
+        const ex = findPair(m0.g, m0.players[0].name, m0.players[1].name);
+        if (ex) { if (!ex.ssid) { ex.ssid = e.id; ex.ss_same = lastTok(e.homeTeam.name) === lastTok(ex.players[0].name) }
+          ex.players.forEach((p, i) => { if (p.ranking == null) p.ranking = (ex.ss_same ? m0.players[i] : m0.players[1 - i]).ranking }); if (ex.pred == null && rankPred(ex)) ch.push(ex.id); continue }
+        m0.day = dayOf(m0.ts); if (m0.day < -2 || m0.day > 2) continue; ST.all.push(m0); ST.byId[m0.id] = m0; indexM(m0); ch.push(m0.id); ST.added = true; ST.ssSchedAdded = (ST.ssSchedAdded || 0) + 1 } }).catch(() => { }))));
+    for (const id of ch) { const m = ST.byId[id]; if (m.pred == null) { await addPred(m); if (m.pred == null) rankPred(m) } }
+    for (const m of ST.all) if (m.pred == null && m.status !== 'finished' && rankPred(m)) ch.push(m.id);
+    if (ok) { ST.srcOk.schedule = Date.now(); delete ST.srcOk.scheduleErr } else ST.srcOk.scheduleErr = 'Sofascore rozpis nedostupný';
+    if (ch.length) onChange(ch); setTimeout(run, 600000) }; setTimeout(run, 2500) }
+// ---------- záložní predikce pro hráče bez historie: Elo odhadnuté ze žebříčku (Sofascore), nízká spolehlivost ----------
+const RANK_ELO = { M: [3050.7, -198.2], W: [2883.6, -140.7] };
+function rankPred(m) { if (m.pred != null) return false; const P = ST.players || []; const el = [];
+  for (const [i, p] of m.players.entries()) { const known = m.pids && m.pids[i] ? P.find(x => x[0] === m.pids[i]) : null;
+    if (known) el.push(known[2]); else if (p.ranking) el.push(RANK_ELO[m.g][0] + RANK_ELO[m.g][1] * Math.log(p.ranking)); else el.push(null) }
+  if (el.every(x => x == null)) return false; const nr = el.filter(x => x == null).length; for (const i of [0, 1]) if (el[i] == null) el[i] = 1500;   // bez historie i žebříčku = startovní Elo nováčka
+  const pe = 1 / (1 + 10 ** ((el[1] - el[0]) / 400)); m.pred = 0.5 + (pe - 0.5) * 0.75; m.pred_low = true; m.pred_note = nr ? 'odhad – soupeř bez historie i žebříčku (startovní Elo), nízká spolehlivost' : 'odhad ze žebříčku – nízká spolehlivost'; liveCalc(m); return true }
 const SOURCES = { sofascore: { fn: srcSofa, base: 1500 }, s365: { fn: src365, base: 2000 }, espn: { fn: srcESPN, base: 3000 } };
-function startSources(onChange) { sofaDetail(onChange); scheduleFallback(onChange); for (const [k, S] of Object.entries(SOURCES)) { S.iv = S.base; S.lat = [];
+function startSources(onChange) { sofaDetail(onChange); scheduleFallback(onChange); ensurePlayers().then(() => sofaSchedule(onChange)); for (const [k, S] of Object.entries(SOURCES)) { S.iv = S.base; S.lat = [];
   const run = async () => { const changed = new Set(), t0 = performance.now();
     try { await S.fn(changed); S.iv = S.base; ST.srcOk[k] = Date.now(); delete ST.srcOk[k + 'Err'] }
     catch (e) { S.iv = Math.min(S.iv * 2, 30000); ST.srcOk[k + 'Err'] = String(e) }   // backoff (429 i chyby)
@@ -164,17 +193,18 @@ async function oddsFor(m) { if (!m.fs) return null; try { const d = (await j(`ht
   const names = {}; for (const g of d.settings?.bookmakers || []) if (g.bookmaker) names[g.bookmaker.id] = g.bookmaker.name; const res = [];
   for (const b of d.odds || []) { if (b.bettingType !== 'HOME_AWAY' || b.bettingScope !== 'FULL_TIME') continue; const o = {}; for (const x of b.odds || []) o[x.eventParticipantId] = x;
     const a = +o[m.fs.pids[0]]?.value, bb = +o[m.fs.pids[1]]?.value; if (a > 1 && bb > 1) res.push({ bookmaker: names[b.bookmakerId] || '#' + b.bookmakerId, a, b: bb }) }
-  if (res.length) { const ba = Math.max(...res.map(x => x.a)), bb = Math.max(...res.map(x => x.b)); m.odds = { best_a: ba, best_b: bb, n: res.length, fair_a: (1 / ba) / (1 / ba + 1 / bb) }; m.odds_table = res; m.odds_t = Date.now(); liveCalc(m) }
+  if (res.length) { m.odds_prev = Object.fromEntries((m.odds_table || []).map(x => [x.bookmaker, [x.a, x.b]])); if (!m.odds_pre && m.status !== 'live') m.odds_pre = Object.fromEntries(res.map(x => [x.bookmaker, [x.a, x.b]])); const ba = Math.max(...res.map(x => x.a)), bb = Math.max(...res.map(x => x.b)); m.odds = { best_a: ba, best_b: bb, n: res.length, fair_a: (1 / ba) / (1 / ba + 1 / bb) }; m.odds_table = res; m.odds_t = Date.now(); liveCalc(m) }
   return res } catch (e) { return null } }
 // ---------- vlastní predikce (logistická regrese v prohlížeči) ----------
 async function ensurePlayers() { if (!ST.players) { [ST.players, ST.lr] = await Promise.all([j('data/players.json'), j('data/lr.json')]) } }
-function pCard(p, surf) { const si = { Hard: 0, Clay: 1, Grass: 2 }[surf] ?? 0; return { id: p[0], name: p[1], elo: p[2], selo: p[3][si], rank: p[4], form: Math.round(p[5] * 10) + '/10', matches: p[6], inact: p[7], fat: p[8], exp: p[9], age: p[10] } }
+function pCard(p, surf) { const si = { Hard: 0, Clay: 1, Grass: 2 }[surf] ?? 0; return { id: p[0], name: p[1], elo: p[2], selo: p[3][si], rank: p[4], form: Math.round(p[5] * 10) + '/10', matches: p[6], inact: p[7], fat: p[8], exp: p[9], age: p[10], spw: p[11], rpw: p[12] } }
 function lrPredict(A, B, surf) { const f = { elo_d: A.elo - B.elo, selo_d: A.selo - B.selo, elo_p: 1 / (1 + 10 ** ((B.elo - A.elo) / 400)), logrank_d: Math.log(B.rank || 2000) - Math.log(A.rank || 2000),
     form_d: (parseInt(A.form) - parseInt(B.form)) / 10, fat_d: A.fat - B.fat, inact_d: A.inact - B.inact, h2h_d: 0, exp_d: A.exp - B.exp, age_d: A.age - B.age,
-    unc_d: Math.log1p(A.matches) - Math.log1p(B.matches), level: 2, best_of: 3, surf_clay: +(surf === 'Clay'), surf_grass: +(surf === 'Grass'), is_qual: 0, female: +(A.id[0] === 'W') };
+    unc_d: Math.log1p(A.matches) - Math.log1p(B.matches), level: 2, best_of: 3, surf_clay: +(surf === 'Clay'), surf_grass: +(surf === 'Grass'), is_qual: 0, female: +(A.id[0] === 'W'),
+    spw_d: A.spw != null && B.spw != null ? A.spw - B.spw : 0, rpw_d: A.rpw != null && B.rpw != null ? A.rpw - B.rpw : 0 };
   const L = ST.lr; let z = L.intercept; const contrib = {}; L.features.forEach((k, i) => { const c = (f[k] - L.mean[i]) / L.scale[i] * L.coef[i]; z += c; contrib[k] = c });
   return { p: 1 / (1 + Math.exp(-z)), elo_p: f.elo_p, contrib } }
-const LBL = { elo_d: 'Elo celkové', selo_d: 'Elo na povrchu', elo_p: 'Elo očekávání', logrank_d: 'Žebříček', form_d: 'Forma (posl. 10 zápasů)', fat_d: 'Zápasy za 14 dní (únava)', inact_d: 'Neaktivita (dny bez zápasu)', exp_d: 'Forma vs. očekávání Elo (60 dní)', age_d: 'Věk', unc_d: 'Nejistota ratingu' };
+const LBL = { elo_d: 'Elo celkové', selo_d: 'Elo na povrchu', elo_p: 'Elo očekávání', logrank_d: 'Žebříček', form_d: 'Forma (posl. 10 zápasů)', fat_d: 'Zápasy za 14 dní (únava)', inact_d: 'Neaktivita (dny bez zápasu)', exp_d: 'Forma vs. očekávání Elo (60 dní)', age_d: 'Věk', unc_d: 'Nejistota ratingu', spw_d: 'Body vyhrané na podání', rpw_d: 'Body vyhrané na returnu' };
 async function staticApi(u) { const url = new URL(u, location.href); const q = url.searchParams; const path = url.pathname.replace(/.*\/api\//, '/api/');
   if (path === '/api/matches') { const d = +q.get('day'); return { day: d, status: ST.status, matches: ST.all.filter(m => m.day === d) } }
   if (path === '/api/status') return ST.status;

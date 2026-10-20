@@ -32,7 +32,7 @@ def main():
                   bagging_freq=1, lambda_l2=1.0, verbose=-1, num_threads=4)
     old_m = json.load(open(OUT / "metrics.json")); iters = old_m.get("gbm_iterations", 333)
     cand = lgb.train(params, lgb.Dataset(tr[F.FEATURES], tr.y), iters)
-    p_new = cand.predict(ho[F.FEATURES]); p_old = lgb.Booster(model_file=str(OUT / "gbm.txt")).predict(ho[F.FEATURES])
+    p_new = cand.predict(ho[F.FEATURES]); bo = lgb.Booster(model_file=str(OUT / "gbm.txt")); p_old = bo.predict(ho[bo.feature_name()])
     mn, mo, me = metrics(ho.y, p_new), metrics(ho.y, p_old), metrics(ho.y, ho.elo_p.values)
     # Brána: (a) kandidát musí porazit Elo baseline na holdoutu o ≥ 0,003 log loss, (b) nesmí být horší než kandidát naposledy
     # publikovaného modelu na jeho holdoutu o víc než 0,01 (tolerance na posun obtížnosti okna). Přímé srovnání se současným
@@ -44,8 +44,8 @@ def main():
                  holdout=f"{datetime.date.fromordinal(H)} – {datetime.date.fromordinal(end)}", holdout_n=int(len(ho)),
                  candidate=mn, current=mo, elo=me, published=bool(ok), reason=("prošel bránou (lepší než Elo" + (f", ≤ minulý {ref:.4f}+0,01" if ref else "") + ")") if ok else "neprošel bránou – ponechán starý model")
     if ok:  # refit na všech datech
-        gbm = lgb.train(params, lgb.Dataset(X[F.FEATURES], X.y), iters); sc = StandardScaler().fit(X[F.FEATURES])
-        lr = LogisticRegression(max_iter=2000).fit(sc.transform(X[F.FEATURES]), X.y)
+        gbm = lgb.train(params, lgb.Dataset(X[F.FEATURES], X.y), iters); sc = StandardScaler().fit(X[F.FEATURES].fillna(0))
+        lr = LogisticRegression(max_iter=2000).fit(sc.transform(X[F.FEATURES].fillna(0)), X.y)
         gbm.save_model(str(OUT / "gbm.txt")); pickle.dump(dict(scaler=sc, lr=lr, features=F.FEATURES), open(OUT / "logreg.pkl", "wb"))
         old_m.update(trained_at=entry["at"], n_matches=entry["n_matches"], data_to=entry["data_to"], last_holdout=dict(lightgbm=mn, elo=me, period=entry["holdout"], n=len(ho)))
         json.dump(old_m, open(OUT / "metrics.json", "w"), ensure_ascii=False, indent=1)

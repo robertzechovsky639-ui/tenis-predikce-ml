@@ -1,0 +1,34 @@
+{
+ "base": {
+  "accuracy": 0.7014,
+  "log_loss": 0.5646,
+  "brier": 0.1923,
+  "n": 161106,
+  "iters": 333
+ },
+ "base+iso": {
+  "accuracy": 0.7015,
+  "log_loss": 0.5653,
+  "brier": 0.1924,
+  "n": 161106
+ },
+ "base:ATP": 0.6039,
+ "base:WTA": 0.5901,
+ "base:Challenger": 0.6096,
+ "srv": {
+  "accuracy": 0.7028,
+  "log_loss": 0.5633,
+  "brier": 0.1918,
+  "n": 161106,
+  "iters": 380
+ },
+ "srv+iso": {
+  "accuracy": 0.7023,
+  "log_loss": 0.5639,
+  "brier": 0.1919,
+  "n": 161106
+ },
+ "srv:ATP": 0.6024,
+ "srv:WTA": 0.5907,
+ "srv:Challenger": 0.6082
+}

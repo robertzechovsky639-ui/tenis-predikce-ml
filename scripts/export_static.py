@@ -42,7 +42,8 @@ def main():
         pl.append([pid, s["name"][pid], round(s["elo"].get(pid, 1500)), [round(s["selo"].get((pid, x), 1500)) for x in ("Hard", "Clay", "Grass")],
                    int(s["rank"][pid]) if pid in s["rank"] else None, round(sum(r) / len(r), 2) if r else 0.5, s["n"].get(pid, 0),
                    min(P.ref_day - last, 365), sum(1 for dd in s["dates"].get(pid, []) if P.ref_day - dd <= 14),
-                   round(sum(rs) / len(rs), 4) if rs else 0, round(s["age"].get(pid) or 25, 1)])
+                   round(sum(rs) / len(rs), 4) if rs else 0, round(s["age"].get(pid) or 25, 1),
+                   *( [round(sum(x[0] for x in sv) / len(sv), 4), round(sum(x[1] for x in sv) / len(sv), 4)] if (sv := s.get("srv", {}).get(pid)) else [None, None])])
     json.dump(pl, open(OUT / "data" / "players.json", "w"), ensure_ascii=False, separators=(",", ":"))
     (OUT / ".nojekyll").write_text("")
     print("export", len(allm), "zápasů,", len(pl), "hráčů,", round(time.time() - t0), "s")
