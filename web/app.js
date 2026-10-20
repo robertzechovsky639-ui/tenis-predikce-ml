@@ -11,12 +11,12 @@ async function api(u){if(STATIC)return staticApi(u);const r=await fetch(u);if(!r
 function saveFav(){localStorage.fav=JSON.stringify([...S.fav])}
 
 let _st0=null;async function load(day){if(STATIC){if(!_st0&&cacheLoad()){for(let d=-2;d<=2;d++)S.data[d]=ST.all.filter(m=>m.day===d);render();upd()}_st0=_st0||loadStatic();await _st0}const d=await api('/api/matches?day='+day);S.data[day]=d.matches;S.status=d.status;render();upd()}
-function upd(){const s=S.status||{};if(STATIC){const lv=ST.all.filter(m=>m.status==='live').length;s.live=lv;const H={sofascore:'Sofascore',s365:'365scores',espn:'ESPN',sofaDetail:'detail'};const hd=health().map(h=>`<span class="hd ${h.state}" title="${H[h.k]}">${H[h.k]}</span>`).join('');
+function upd(){const s=S.status||{};let html;if(STATIC){const lv=ST.all.filter(m=>m.status==='live').length;s.live=lv;const H={sofascore:'Sofascore',s365:'365scores',espn:'ESPN',sofaDetail:'detail'};const hd=health().map(h=>`<span class="hd ${h.state}" title="${H[h.k]}">${H[h.k]}</span>`).join('');
   const age=ST.generated?Math.round((Date.now()/1000-ST.generated)/60):null;
-  $('#upd').innerHTML=`<span class="g"></span>${lv?lv+' živě':'Bez živých zápasů'} · predikce aktualizovány před ${age??'–'} min<div class="hrow">${hd}</div>`;return;
-  $('#upd').innerHTML=`<span class="g"></span>${lv?'Živě':'Bez živých zápasů'} · skóre ${ST.lastLive?ST.lastLive.toLocaleTimeString('cs-CZ'):'–'} (${ST.liveMs??'–'} ms) · predikce ${ST.generated?new Date(ST.generated*1000).toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit'}):'–'}`;return}
- const l=S.lat.length?` · zpoždění push ${Math.round(S.lat.at(-1))} ms`:'';
- $('#upd').innerHTML=(s.demo?'<span class="tag demo">DEMO</span> ':'<span class="g"></span>')+`${s.live?'Živě':'Bez živých zápasů'} · aktualizováno ${s.last_poll?new Date(s.last_poll).toLocaleTimeString('cs-CZ'):'–'}${l}`}
+  html=`<span class="g"></span>${lv?lv+' živě':'Bez živých zápasů'} · predikce aktualizovány před ${age??'–'} min<div class="hrow">${hd}</div>`;}
+ else{const l=S.lat.length?` · zpoždění push ${Math.round(S.lat.at(-1))} ms`:'';
+  html=(s.demo?'<span class="tag demo">DEMO</span> ':'<span class="g"></span>')+`${s.live?'Živě':'Bez živých zápasů'} · aktualizováno ${s.last_poll?new Date(s.last_poll).toLocaleTimeString('cs-CZ'):'–'}${l}`;}
+ const el=$('#upd');if(el&&el._h!==html){el._h=html;el.innerHTML=html}}
 
 // ---- SSE: okamžité aktualizace ----
 function stream(){if(STATIC)return staticLoop();const es=new EventSource('/api/stream');
@@ -35,12 +35,24 @@ function filt(list){return list.filter(m=>{
 function scoreSig(m){const p=m.live?m.live.match:m.pred;return [m.status,JSON.stringify(m.sets),JSON.stringify(m.pts_raw||m.pts),m.server||0,m.winner||0,p==null?'':Math.round(p*100),m.pred_low?1:0,m.odds?(m.odds.best_a+','+m.odds.best_b):'',m.value||''].join('|')}
 function structSig(m){return [m.status,(m.sets||[]).length,m.pts_raw?1:0,m.pred!=null?1:0,m.odds?1:0,m.winner||0,m.server||0].join('|')}
 function visKey(){if(S.view==='oblibene')return 'f:'+Object.values(S.data).flat().filter(m=>S.fav.has(m.id)).map(m=>m.id).join(',');if(S.view!=='zapasy')return 'v:'+S.view;return [S.day,S.circ,S.filt,S.favOnly?1:0,(filt(S.data[S.day]||[])).map(m=>m.id).join(',')].join('|')}
-function syncCard(el,m){const sig=scoreSig(m);if(el.dataset.sig===sig)return;const tmp=document.createElement('div');tmp.innerHTML=card(m);const n=tmp.firstChild;if(!n)return;
- if(el.dataset.st===structSig(m)){const a=[...el.querySelectorAll('.sc span')],b=[...n.querySelectorAll('.sc span')];b.forEach((x,i)=>{if(a[i]&&a[i].textContent!==x.textContent){a[i].textContent=x.textContent;a[i].className=x.className;a[i].classList.add('flash')}});
-  const bs=el.querySelectorAll('.bar span'),nb=n.querySelectorAll('.bar span');bs.forEach((s,i)=>{if(nb[i])s.textContent=nb[i].textContent});const bi=el.querySelector('.bar i'),ni=n.querySelector('.bar i');if(bi&&ni)bi.style.width=ni.style.width;
-  const lb=el.querySelector('.lbl'),nl=n.querySelector('.lbl');if(lb&&nl&&lb.innerHTML!==nl.innerHTML)lb.innerHTML=nl.innerHTML;el.dataset.sig=sig;return}
+function patchCard(el,m){const rows=el.querySelectorAll('.row');if(rows.length<2)return false;const live=m.status==='live';
+ for(let i=0;i<2;i++){const box=rows[i].querySelector('.sc');if(!box){if(m.sets.length)return false;continue}
+  const spans=box.querySelectorAll('span');let k=m.server===i+1?1:0;if(spans.length<k+m.sets.length+(m.pts_raw?1:0))return false;
+  for(let s=0;s<m.sets.length;s++,k++){const t=String(m.sets[s][i]);const cur=live&&s===m.sets.length-1;if(spans[k].textContent!==t){spans[k].textContent=t;spans[k].className=cur?'cur flash':'';}}
+  if(m.pts_raw){const raw=m.pts_raw[i];const t=(raw==50||raw==='A')?'A':String(raw);if(spans[k].textContent!==t){spans[k].textContent=t;spans[k].className='cur flash';}}}
+ const p=m.live?m.live.match:m.pred;const bar=el.querySelector('.bar');
+ if(p!=null&&bar){const bs=bar.querySelectorAll('span');const a=pct(p),b=pct(1-p);if(bs[0]&&bs[0].textContent!==a)bs[0].textContent=a;if(bs[1]&&bs[1].textContent!==b)bs[1].textContent=b;const bi=bar.querySelector('i');if(bi)bi.style.width=(p*100)+'%';}
+ const lb=el.querySelector('.lbl');if(lb){const want=`${m.live?'PREDIKCE TEĎ':'PREDIKCE MODELU'}${m.pred_low?' <span class="low">nízká spolehlivost</span>':''}`;if(lb.innerHTML!==want)lb.innerHTML=want;}
+ el.dataset.sig=scoreSig(m);return true}
+function syncCard(el,m){const sig=scoreSig(m);if(el.dataset.sig===sig)return;
+ if(el.dataset.st===structSig(m)&&patchCard(el,m))return;
+ const tmp=document.createElement('div');tmp.innerHTML=card(m);const n=tmp.firstChild;if(!n)return;
  const os=[...el.querySelectorAll('.sc span')].map(x=>x.textContent);[...n.querySelectorAll('.sc span')].forEach((x,i)=>{if(os[i]!==undefined&&os[i]!==x.textContent)x.classList.add('flash')});n.onclick=()=>openDetail(m.id);el.replaceWith(n)}
-function paintList(ids){const k=visKey();if(k!==S.vis){render();return}for(const id of ids||[]){const el=document.querySelector(`.m[data-id="${CSS.escape(id)}"]`);const m=(typeof ST!=='undefined'&&ST.byId&&ST.byId[id])||Object.values(S.data).flat().find(x=>x.id===id);if(el&&m)syncCard(el,m)}}
+let _pq=null,_raf=0;
+function paintList(ids){if(!ids||!ids.length)return;if(!_pq)_pq=new Set();for(const id of ids)_pq.add(id);if(_raf)return;
+ const run=()=>{_raf=0;const q=_pq;_pq=null;paintListNow([...q]);};
+ _raf=(window.requestAnimationFrame||(f=>setTimeout(f,16)))(run);}
+function paintListNow(ids){const k=visKey();if(k!==S.vis){render();return}for(const id of ids||[]){const el=document.querySelector(`.m[data-id="${CSS.escape(id)}"]`);const m=(typeof ST!=='undefined'&&ST.byId&&ST.byId[id])||Object.values(S.data).flat().find(x=>x.id===id);if(el&&m)syncCard(el,m)}}
 function card(m){const fin=m.status==='finished',live=m.status==='live';
  const sc=i=>m.sets.map((s,k)=>`<span class="${live&&k===m.sets.length-1?'cur':''}">${s[i]}</span>`).join('');
  const t=new Date(m.ts*1000).toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit'});
@@ -79,7 +91,7 @@ async function modelView(){const m=await api('/api/model');const r=(k,n)=>`<tr><
  ${(m.history||[]).length?`<table><tr><th>DATUM</th><th>HOLDOUT</th><th>NOVÝ</th><th>STARÝ</th><th></th></tr>${m.history.slice(-10).reverse().map(h=>`<tr><td>${h.at.slice(0,10)}</td><td>${h.holdout_n}</td><td>${h.candidate.log_loss.toFixed(4)}</td><td>${h.current.log_loss.toFixed(4)}</td><td>${h.published?'✅':'↩︎'}</td></tr>`).join('')}</table><p class="note">Log loss na holdoutu; ✅ = publikováno, ↩︎ = ponechán starý model.</p>`:'<p class="note">Zatím žádné přetrénování.</p>'}</div>
  <div class="box"><h3>PODLE OKRUHU (LightGBM vs Elo)</h3><table><tr><th></th><th>N</th><th>LGBM</th><th>ELO</th></tr>${Object.entries(m.by_circuit).map(([c,v])=>`<tr><td>${c}</td><td>${v.lightgbm.n}</td><td>${(v.lightgbm.accuracy*100).toFixed(1)} %</td><td>${(v.elo.accuracy*100).toFixed(1)} %</td></tr>`).join('')}</table></div>
  <div class="box"><h3>DŮLEŽITOST PŘÍZNAKŮ (gain)</h3>${Object.entries(m.importance).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="bar" style="margin:5px 0"><span style="width:90px">${k}</span><div class="t" style="background:#2a2060"><i style="width:${v*100}%"></i></div><span>${(v*100).toFixed(1)} %</span></div>`).join('')}</div>
- ${STATIC?`<div class="box"><h3>ŽIVÁ DATA (GitHub Pages)</h3><p class="note">Skóre přímo z prohlížeče: Sofascore každé 1,5 s, 365scores 2 s, ESPN 3 s (při chybě/429 se interval zdvojnásobuje až na 30 s), Challenger/ITF bez bodů z 365scores se aktualizují jen z GitHub Actions, živé kurzy postupně (~1 zápas/0,7 s, cyklus ≥ 30 s). Odezva zdrojů (medián): ${Object.entries(SOURCES).map(([k,s])=>k+' '+(s.lat&&s.lat.length?Math.round([...s.lat].sort((a,b)=>a-b)[s.lat.length>>1]):'–')+' ms').join(', ')}. Předzápasové predikce: GitHub Actions, vygenerováno ${new Date(ST.generated*1000).toLocaleString('cs-CZ')}.</p></div>`:''}<div class="box" style="${STATIC?'display:none':''}"><h3>ŽIVÁ DATA</h3><p class="note">Poslední dotaz: ${S.status.last_poll||'–'} · stažení zdrojů ${S.status.source_ms} ms · celý cyklus ${S.status.poll_ms} ms · interval ${S.status.live?'3 s (živé zápasy)':'30 s'} · zpoždění SSE push→prohlížeč ${S.lat.length?Math.round(S.lat.at(-1))+' ms':'–'}</p></div>`}
+ ${STATIC?`<div class="box"><h3>ŽIVÁ DATA (GitHub Pages)</h3><p class="note">Skóre přímo z prohlížeče: na počítači Sofascore 1,5 s, 365scores 2,5 s a ESPN 4 s (začátky rozložené, ať se tři odpovědi nesejdou najednou); na telefonu 2,2 / 5 / 8 s. Detail bod po bodu jen u zápasů na obrazovce. JSON se čte mimo hlavní vlákno. Při chybě se interval zdvojnásobuje až na 30 s, na pozadí nejméně 15 s. Odezva zdrojů (medián): ${Object.entries(SOURCES).map(([k,s])=>k+' '+(s.lat&&s.lat.length?Math.round([...s.lat].sort((a,b)=>a-b)[s.lat.length>>1]):'–')+' ms').join(', ')}. Předzápasové predikce: GitHub Actions, vygenerováno ${new Date(ST.generated*1000).toLocaleString('cs-CZ')}.</p></div>`:''}<div class="box" style="${STATIC?'display:none':''}"><h3>ŽIVÁ DATA</h3><p class="note">Poslední dotaz: ${S.status.last_poll||'–'} · stažení zdrojů ${S.status.source_ms} ms · celý cyklus ${S.status.poll_ms} ms · interval ${S.status.live?'3 s (živé zápasy)':'30 s'} · zpoždění SSE push→prohlížeč ${S.lat.length?Math.round(S.lat.at(-1))+' ms':'–'}</p></div>`}
 function chatView(){return `<h1>CHAT</h1><div id="msgs"><div class="msg">Ahoj! Napiš dvojici hráčů, např. „Sinner vs Alcaraz antuka“. Odpovídám z modelu (lokální asistent, bez AI).</div></div>
  <div style="padding:12px;display:flex;gap:8px"><input class="q" id="cq" placeholder="Zpráva…"><button class="ob" id="cs">➤</button></div>`}
 function playersView(){return `<h1>HRÁČI</h1><div style="padding:0 12px"><input class="q" id="ps" placeholder="Hledat hráče…"></div><div id="plist"></div>`}
@@ -198,8 +210,10 @@ async function askNotif(){if(!window.Notification){toast('Tento prohlížeč sys
  addEventListener('touchmove',e=>{if(y0==null)return;act=e.touches[0].clientY-y0>70;ptr.classList.toggle('on',act)},{passive:true});
  addEventListener('touchend',async()=>{if(act){ptr.textContent='Obnovuji…';try{if(STATIC){_st0=loadStatic();await _st0;for(let d=-2;d<=2;d++)S.data[d]=ST.all.filter(m=>m.day===d)}else await load(S.day)}catch(e){}render();upd();ptr.textContent='↓ Pusť pro obnovení'}
   ptr.classList.remove('on');act=false;y0=null})})();
-function staticLoop(){const onCh=ids=>{const days=new Set([-2,-1,0,1,2]);for(const m of ST.all)days.add(m.day|0);for(const d of days)S.data[d]=ST.all.filter(m=>m.day===+d);upd();cacheSave();
-  if(S.view==='zapasy'||S.view==='oblibene'){paintList(ids);const lp=document.querySelector('h1 .pill');if(lp)lp.textContent=`● ${ST.all.filter(m=>m.status==='live').length} živě`}
+function placeMatch(m){let home=false;for(const d of Object.keys(S.data)){const arr=S.data[d];const i=arr.findIndex(x=>x.id===m.id);if(i<0)continue;if((m.day|0)!==+d)arr.splice(i,1);else{if(arr[i]!==m)arr[i]=m;home=true}}
+ const day=m.day|0;const arr=S.data[day]||(S.data[day]=[]);if(!home&&!arr.some(x=>x.id===m.id))arr.push(m)}
+function staticLoop(){const onCh=ids=>{for(const id of ids||[]){const m=ST.byId[id];if(m)placeMatch(m)}upd();cacheSave();
+  if(S.view==='zapasy'||S.view==='oblibene'){paintList(ids);const lp=document.querySelector('h1 .pill');const t=`● ${ST.all.filter(m=>m.status==='live').length} živě`;if(lp&&lp.textContent!==t)lp.textContent=t}
   if(S.detail&&ids.includes(S.detail.id)){const m=ST.byId[S.detail.id];const sig=m&&scoreSig(m);if(m&&S.detail._lsig!==sig){Object.assign(S.detail,m);S.detail._lsig=sig;drawDetail()}}
   favEvents(ids)};
  startSources(onCh);

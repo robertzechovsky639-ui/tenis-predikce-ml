@@ -23,8 +23,14 @@ const MK = (() => {
     const ps = (setP(pa, pb, 0, 0, true) + setP(pa, pb, 0, 0, false)) / 2; const memo = {};
     const m = (x, y) => { if (x >= need) return 1; if (y >= need) return 0; const k = x * 10 + y; if (k in memo) return memo[k]; return memo[k] = ps * m(x + 1, y) + (1 - ps) * m(x, y + 1) };
     const c = setP(pa, pb, ga, gb, aSrv, pts); return c * m(sa + 1, sb) + (1 - c) * m(sa, sb + 1) }
-  function serveProbs(p, female, bo) { const base = female ? .56 : .64; let lo = -.25, hi = .25;
-    for (let i = 0; i < 30; i++) { const d = (lo + hi) / 2; if (matchP(base + d, base - d, 0, 0, 0, 0, true, [0, 0], bo) < p) lo = d; else hi = d } const d = (lo + hi) / 2; return [base + d, base - d] }
+  const spCache = new Map();
+  function serveProbs(p, female, bo) {
+    const key = p + '|' + (female ? 1 : 0) + '|' + bo;
+    const hit = spCache.get(key); if (hit) return hit;
+    const base = female ? .56 : .64; let lo = -.25, hi = .25;
+    for (let i = 0; i < 30; i++) { const d = (lo + hi) / 2; if (matchP(base + d, base - d, 0, 0, 0, 0, true, [0, 0], bo) < p) lo = d; else hi = d }
+    const d = (lo + hi) / 2; const out = [base + d, base - d]; spCache.set(key, out); return out;
+  }
   function live(p, done, cur, pts, server, female, bo) { const [pa, pb] = serveProbs(p, female, bo); const sa = done.filter(s => s[0] > s[1]).length, sb = done.length - sa;
     const srv = server ? [server === 1] : [true, false]; const avg = f => srv.reduce((t, s) => t + f(s), 0) / srv.length;
     const tb = cur[0] === 6 && cur[1] === 6;
@@ -44,7 +50,7 @@ function indexM(m) { ST.byPair[m.g + pairKey(m.players[0].name, m.players[1].nam
 const ST = { all: [], byId: {}, byPair: {}, players: null, lr: null, status: {}, lastLive: null, liveMs: null, srcOk: {} };
 function dayOf(ts) { const a = new Date(); a.setHours(0, 0, 0, 0); const b = new Date(ts * 1000); b.setHours(0, 0, 0, 0); return Math.round((b - a) / 864e5) }
 function cacheLoad() { try { const d = JSON.parse(localStorage.tenisCache || 'null'); if (d && Date.now() / 1000 - d.generated < 86400) { applyData(d); ST.fromCache = true; ST.cacheHit = true; return true } } catch (e) { } return false }
-let _cT = 0; function cacheSave() { if (Date.now() - _cT < 5000) return; _cT = Date.now(); try { localStorage.tenisCache = JSON.stringify({ generated: ST.generated, status: ST.status, matches: ST.all }) } catch (e) { } }
+let _cT = 0; function cacheSave() { const now = Date.now(); if (now - _cT < 20000) return; _cT = now; const run = () => { try { localStorage.tenisCache = JSON.stringify({ generated: ST.generated, status: ST.status, matches: ST.all }) } catch (e) { } }; if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 2500 }); else setTimeout(run, 40); }
 function keepLive(m, o) {
   const oldModel = o.pred != null && !o.pred_low, newModel = m.pred != null && !m.pred_low;
   if (oldModel && !newModel) { m.pred = o.pred; m.pred_lr = o.pred_lr; m.pids = o.pids; m.pred_low = false; m.pred_note = null; }
@@ -60,13 +66,24 @@ async function loadStatic() { const r = await fetch('data/matches.json', { cache
 function applyData(d) {
   ST.status = d.status; ST.generated = d.generated; ST.all = d.matches; ST.byId = {}; ST.byPair = {};
   for (const m of ST.all) { m.day = m.status === 'live' ? 0 : dayOf(m.ts); ST.byId[m.id] = m; indexM(m) } }
-function liveCalc(m) { if (m.status !== 'live' || m.pred == null) { m.live = null; return }
+function liveKey(m) { let s = ''; const sets = m.sets || []; for (let i = 0; i < sets.length; i++) s += sets[i][0] + '-' + sets[i][1] + ','; const pts = m.pts; return m.pred + '|' + (m.best_of || 3) + '|' + m.g + '|' + (m.server || 0) + '|' + s + '|' + (pts ? pts[0] + ':' + pts[1] : '') + '|' + (m.odds ? m.odds.best_a + ':' + m.odds.best_b : ''); }
+function liveCalc(m) { if (m.status !== 'live' || m.pred == null) { m.live = null; m._lk = ''; return }
+  const lk = liveKey(m); if (m.live && m._lk === lk) return; m._lk = lk;
   let done = m.sets.slice(0, -1), cur = m.sets.length ? m.sets[m.sets.length - 1] : [0, 0];
   if (cur && ((Math.max(...cur) >= 6 && Math.abs(cur[0] - cur[1]) >= 2) || Math.max(...cur) === 7)) { done = m.sets; cur = [0, 0] }
   const pts = m.pts || [0, 0]; const l = MK.live(m.pred, done, cur, pts, m.server, m.g === 'W', m.best_of);
   l.note = m.server ? 'stav bod po bodu (365scores, v prohlížeči): sety, gemy, body a podávající' : 'body/podání nejsou k dispozici – stav = sety a gemy, podávající neznámý (průměr)';
   m.live = l; m.value = null; if (m.odds && m.odds_t > Date.now() - 90000) { const p = l.match; m.value = p * m.odds.best_a - 1 > .05 ? 'A' : (1 - p) * m.odds.best_b - 1 > .05 ? 'B' : null } }
-async function j(u, h, signal) { const r = await fetch(u, { headers: h || {}, cache: 'no-store', signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json() }
+async function jDirect(u, h, signal) { const r = await fetch(u, { headers: h || {}, cache: 'no-store', signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json() }
+const _jobs = new Map(); let _wj = null, _jid = 0;
+function pollWorker() { if (_wj) return _wj; try { _wj = new Worker('poll-worker.js'); } catch (e) { return null; }
+  _wj.onmessage = e => { const job = _jobs.get(e.data.id); if (!job) return; _jobs.delete(e.data.id); if (e.data.error) { const err = new Error(e.data.error); if (e.data.error === 'AbortError') err.name = 'AbortError'; job.rej(err); } else job.res(e.data.data); };
+  return _wj; }
+function j(u, h, signal) { const w = !h && typeof Worker !== 'undefined' && pollWorker(); if (!w) return jDirect(u, h, signal);
+  return new Promise((res, rej) => { const id = ++_jid; _jobs.set(id, { res, rej });
+    const abort = () => { if (!_jobs.has(id)) return; _jobs.delete(id); try { w.postMessage({ abort: true, id }); } catch (e) { } const err = new Error('aborted'); err.name = 'AbortError'; rej(err); };
+    if (signal) { if (signal.aborted) return abort(); signal.addEventListener('abort', abort, { once: true }); }
+    w.postMessage({ id, url: new URL(u, location.href).href }); }); }
 function consider(m, upd, token, changed) {
   if (!m || !TenisLive.applyLive(m, upd, token, t => !t || !SOURCES[t.src] || SOURCES[t.src].cur === t)) return false;
   liveCalc(m); if (changed) changed.add(m.id); return true;
@@ -155,11 +172,18 @@ function ensurePred(m) {
   m.pred = fb.p; m.pred_low = true; m.pred_note = fb.note; m.pred_lr = null; liveCalc(m); return true;
 }
 async function addPred(m) { try { await ensurePlayers(); ensurePred(m); } catch (e) { ensurePred(m); } }
-// ---------- detail živých zápasů ze Sofascore (podávající z point-by-point, kurzy) – postupně, 1 požadavek / 0,6 s ----------
+// ---------- detail živých zápasů ze Sofascore (podávající z point-by-point, kurzy) – jen zápasy na obrazovce ----------
 const frac = f => { const [a, b] = String(f).split('/').map(Number); return b ? 1 + a / b : null };
+function slowNet() { const c = navigator.connection; const narrow = typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches; return !!(narrow || (c && (c.saveData || c.effectiveType === 'slow-2g' || c.effectiveType === '2g' || c.effectiveType === '3g'))); }
+function pollPlan() { return slowNet()
+  ? { sofa: 2200, s365: 5000, espn: 8000, detail: 1800, lag: { sofascore: 0, s365: 700, espn: 1400 } }
+  : { sofa: 1500, s365: 2500, espn: 4000, detail: 1100, lag: { sofascore: 0, s365: 400, espn: 800 } }; }
 async function sofaDetail(onChange) { let i = 0;
-  const step = async () => { let wait = 600;
-    try { const L = ST.all.filter(m => m.status === 'live' && m.ssid && ((((m.srvTrust || 0) < 3) && !m.no_pbp) || (!m.odds && !(m.ss_odds_t > Date.now() - 60000))));
+  const step = async () => { let wait = pollPlan().detail;
+    try { let L = ST.all.filter(m => m.status === 'live' && m.ssid && ((((m.srvTrust || 0) < 3) && !m.no_pbp) || (!m.odds && !(m.ss_odds_t > Date.now() - 60000))));
+      const open = (typeof S !== 'undefined' && S.detail && S.detail.id) || null;
+      const onScreen = new Set([...document.querySelectorAll('#view .m')].map(el => el.dataset.id));
+      if (onScreen.size) L = L.filter(m => m.id === open || onScreen.has(m.id)); else L = L.slice(0, 4);
       if (L.length && !document.hidden) { const m = L[i++ % L.length]; const ch = [];
         if ((m.srvTrust || 0) < 3 && !m.no_pbp) { const d = await j(`https://api.sofascore1.com/api/v1/event/${m.ssid}/point-by-point`).catch(e => { if (/404/.test(e)) { m.no_pbp = true; return {} } throw e }); const g = d.pointByPoint?.[0]?.games?.[0];
           if (g && g.score && g.score.serving) { const cur = m.sets && m.sets.length ? m.sets[m.sets.length - 1] : null;
@@ -231,17 +255,20 @@ async function loadRanks(onChange) {
     if (ch.length && onChange) onChange(ch);
   } catch (e) { ST.srcOk.ranksErr = String(e); }
 }
-const SOURCES = { sofascore: { fn: srcSofa, base: 1500 }, s365: { fn: src365, base: 2000 }, espn: { fn: srcESPN, base: 3000 } };
-function startSources(onChange) { sofaDetail(onChange); scheduleFallback(onChange); ensurePlayers().then(() => { sofaSchedule(onChange); loadRanks(onChange); }); for (const [k, S] of Object.entries(SOURCES)) { S.iv = S.base; S.lat = [];
+const SOURCES = { sofascore: { fn: srcSofa, base: 1500 }, s365: { fn: src365, base: 2500 }, espn: { fn: srcESPN, base: 4000 } };
+function startSources(onChange) { const plan = pollPlan(); SOURCES.sofascore.base = plan.sofa; SOURCES.s365.base = plan.s365; SOURCES.espn.base = plan.espn;
+  sofaDetail(onChange); scheduleFallback(onChange); ensurePlayers().then(() => { sofaSchedule(onChange); loadRanks(onChange); }); const lag = plan.lag;
+  for (const [k, Src] of Object.entries(SOURCES)) { Src.iv = Src.base; Src.lat = [];
   const run = async () => { const changed = new Set(), t0 = performance.now();
-    const token = { src: k, t0: Date.now(), gen: (S.gen = (S.gen || 0) + 1) }; S.cur = token;
-    if (S.abort) S.abort.abort(); S.abort = new AbortController(); const timer = setTimeout(() => S.abort.abort(), 6000);
-    try { await S.fn(changed, token, S.abort.signal); S.iv = S.base; ST.srcOk[k] = Date.now(); delete ST.srcOk[k + 'Err']; }
-    catch (e) { if (e.name !== 'AbortError') { S.iv = Math.min(S.iv * 2, 30000); ST.srcOk[k + 'Err'] = String(e); } }
+    const plan = pollPlan(); Src.base = k === 'sofascore' ? plan.sofa : k === 's365' ? plan.s365 : plan.espn;
+    const token = { src: k, t0: Date.now(), gen: (Src.gen = (Src.gen || 0) + 1) }; Src.cur = token;
+    if (Src.abort) Src.abort.abort(); Src.abort = new AbortController(); const timer = setTimeout(() => Src.abort.abort(), 6000);
+    try { await Src.fn(changed, token, Src.abort.signal); Src.iv = Src.base; ST.srcOk[k] = Date.now(); delete ST.srcOk[k + 'Err']; }
+    catch (e) { if (e.name !== 'AbortError') { Src.iv = Math.min(Src.iv * 2, 30000); ST.srcOk[k + 'Err'] = String(e); } }
     finally { clearTimeout(timer); }
-    S.lat = [...S.lat.slice(-29), performance.now() - t0]; ST.lastLive = new Date(); ST.liveMs = Math.round(performance.now() - t0);
-    if (changed.size && S.cur === token) onChange([...changed]); setTimeout(run, document.hidden ? Math.max(S.iv, 15000) : S.iv); };
-  setTimeout(run, 0); } }
+    Src.lat = [...Src.lat.slice(-29), performance.now() - t0]; ST.lastLive = new Date(); ST.liveMs = Math.round(performance.now() - t0);
+    if (changed.size && Src.cur === token) onChange([...changed]); setTimeout(run, document.hidden ? Math.max(Src.iv, 15000) : Src.iv); };
+  setTimeout(run, lag[k] || 0); } }
 // Flashscore (Challenger/ITF) – každých 20 s, pokud prohlížeč povolí CORS s hlavičkou x-fsign
 async function fsTick() { try { const r = await fetch('https://global.flashscore.ninja/2/x/feed/f_2_0_2_en_1', { headers: { 'x-fsign': 'SW9D1eZo' }, cache: 'no-store' }); const t = await r.text(); ST.srcOk.fs = Date.now(); const ch = [];
   for (const rec of t.split('~')) { const f = {}; for (const kv of rec.split('¬')) { const i = kv.indexOf('÷'); if (i > 0) f[kv.slice(0, i)] = kv.slice(i + 1) }
