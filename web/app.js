@@ -21,9 +21,9 @@ function upd(){const s=S.status||{};if(STATIC){const lv=ST.all.filter(m=>m.statu
 // ---- SSE: okamžité aktualizace ----
 function stream(){if(STATIC)return staticLoop();const es=new EventSource('/api/stream');
  es.onmessage=e=>{const m=JSON.parse(e.data);if(m.status)S.status=m.status;
-  if(m.type==='update'){S.lat.push(Date.now()-m.t_push*1000);for(const x of m.matches){const arr=S.data[x.day];if(!arr)continue;const i=arr.findIndex(y=>y.id===x.id);if(i>=0)arr[i]=x;else arr.push(x)}
-   api('/api/status').then(s=>{S.status=s;upd()});if(S.view==='zapasy'||S.view==='oblibene')render();
-   if(S.detail&&m.matches.some(x=>x.id===S.detail.id))openDetail(S.detail.id,true)}
+  if(m.type==='update'){S.lat.push(Date.now()-m.t_push*1000);for(const x of m.matches){const arr=S.data[x.day]||(S.data[x.day]=[]);const i=arr.findIndex(y=>y.id===x.id);if(i>=0)arr[i]=x;else arr.push(x)}
+   api('/api/status').then(s=>{S.status=s;upd()});if(S.view==='zapasy'||S.view==='oblibene')paintList(m.matches.map(x=>x.id));
+   if(S.detail&&m.matches.some(x=>x.id===S.detail.id)){const x=m.matches.find(z=>z.id===S.detail.id);const sig=scoreSig(x);if(S.detail._lsig!==sig){S.detail=x;S.detail._lsig=sig;drawDetail()}}}
   upd()};}
 
 function filt(list){return list.filter(m=>{
@@ -32,13 +32,22 @@ function filt(list){return list.filter(m=>{
  if(S.filt==='value'&&!m.value)return false;if(S.filt==='qual'&&!m.qual)return false;if(S.filt==='main'&&m.qual)return false;
  if(S.favOnly&&!S.fav.has(m.id))return false;return true})}
 
+function scoreSig(m){const p=m.live?m.live.match:m.pred;return [m.status,JSON.stringify(m.sets),JSON.stringify(m.pts_raw||m.pts),m.server||0,m.winner||0,p==null?'':Math.round(p*100),m.pred_low?1:0,m.odds?(m.odds.best_a+','+m.odds.best_b):'',m.value||''].join('|')}
+function structSig(m){return [m.status,(m.sets||[]).length,m.pts_raw?1:0,m.pred!=null?1:0,m.odds?1:0,m.winner||0,m.server||0].join('|')}
+function visKey(){if(S.view==='oblibene')return 'f:'+Object.values(S.data).flat().filter(m=>S.fav.has(m.id)).map(m=>m.id).join(',');if(S.view!=='zapasy')return 'v:'+S.view;return [S.day,S.circ,S.filt,S.favOnly?1:0,(filt(S.data[S.day]||[])).map(m=>m.id).join(',')].join('|')}
+function syncCard(el,m){const sig=scoreSig(m);if(el.dataset.sig===sig)return;const tmp=document.createElement('div');tmp.innerHTML=card(m);const n=tmp.firstChild;if(!n)return;
+ if(el.dataset.st===structSig(m)){const a=[...el.querySelectorAll('.sc span')],b=[...n.querySelectorAll('.sc span')];b.forEach((x,i)=>{if(a[i]&&a[i].textContent!==x.textContent){a[i].textContent=x.textContent;a[i].className=x.className;a[i].classList.add('flash')}});
+  const bs=el.querySelectorAll('.bar span'),nb=n.querySelectorAll('.bar span');bs.forEach((s,i)=>{if(nb[i])s.textContent=nb[i].textContent});const bi=el.querySelector('.bar i'),ni=n.querySelector('.bar i');if(bi&&ni)bi.style.width=ni.style.width;
+  const lb=el.querySelector('.lbl'),nl=n.querySelector('.lbl');if(lb&&nl&&lb.innerHTML!==nl.innerHTML)lb.innerHTML=nl.innerHTML;el.dataset.sig=sig;return}
+ const os=[...el.querySelectorAll('.sc span')].map(x=>x.textContent);[...n.querySelectorAll('.sc span')].forEach((x,i)=>{if(os[i]!==undefined&&os[i]!==x.textContent)x.classList.add('flash')});n.onclick=()=>openDetail(m.id);el.replaceWith(n)}
+function paintList(ids){const k=visKey();if(k!==S.vis){render();return}for(const id of ids||[]){const el=document.querySelector(`.m[data-id="${CSS.escape(id)}"]`);const m=(typeof ST!=='undefined'&&ST.byId&&ST.byId[id])||Object.values(S.data).flat().find(x=>x.id===id);if(el&&m)syncCard(el,m)}}
 function card(m){const fin=m.status==='finished',live=m.status==='live';
  const sc=i=>m.sets.map((s,k)=>`<span class="${live&&k===m.sets.length-1?'cur':''}">${s[i]}</span>`).join('');
  const t=new Date(m.ts*1000).toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit'});
  const p=m.live?m.live.match:m.pred;
  const pl=(i)=>`<div class="row"><div class="pl ${m.winner===i+1?'w':''}"><span class="flag">${esc((m.players[i].country||'').slice(0,3).toUpperCase())}</span>${esc(shortN(m.players[i]))}${!m.pids[i]?' <span class="na">(bez historie)</span>':''}</div>
    ${m.sets.length?`<div class="sc">${m.server===i+1?'<span style="color:#ffc84a">●</span>':''}${sc(i)}${m.pts_raw?`<span class="cur">${m.pts_raw[i]==50?'A':m.pts_raw[i]}</span>`:''}</div>`:i===0?`<div class="time">${t}</div>`:''}${i===0&&live?' <span class="livebadge">▶ živě</span>':''}</div>`;
- let h=`<div class="m" data-id="${m.id}">${pl(0)}${pl(1)}`;
+ let h=`<div class="m" data-id="${esc(m.id)}" data-st="${esc(structSig(m))}" data-sig="${esc(scoreSig(m))}">${pl(0)}${pl(1)}`;
  if(p!=null)h+=`<div class="lbl">${m.live?'PREDIKCE TEĎ':'PREDIKCE MODELU'}${m.pred_low?' <span class="low">nízká spolehlivost</span>':''}</div><div class="bar"><span>${pct(p)}</span><div class="t"><i style="width:${p*100}%"></i></div><span>${pct(1-p)}</span></div>`;
  else h+=`<div class="na" style="margin-top:6px">Predikce nedostupná – hráč není v historických datech</div>`;
  if(m.odds)h+=`<div class="odds"><span class="ob ${m.value==='A'?'val':''}">${f2(m.odds.best_a)}${m.value==='A'?' ▲':''}</span><span>nejlepší kurz <b class="pa">${f2(m.odds.best_a)}</b> : <b class="pb">${f2(m.odds.best_b)}</b> · ${m.odds.n}×</span><span class="ob ${m.value==='B'?'val':''}">${f2(m.odds.best_b)}${m.value==='B'?' ▲':''}</span></div>`;
@@ -78,7 +87,7 @@ function playersView(){return `<h1>HRÁČI</h1><div style="padding:0 12px"><inpu
 async function render(){const v=$('#view');let h='';
  if(S.view==='zapasy')h=matchesView(false);else if(S.view==='oblibene')h=matchesView(true);else if(S.view==='predikce')h=await predView();
  else if(S.view==='model')h=await modelView();else if(S.view==='chat'){if(v.dataset.v==='chat')return;h=chatView()}else if(S.view==='hraci'){if(v.dataset.v==='hraci')return;h=playersView()}
- v.dataset.v=S.view;v.innerHTML=h;bind()}
+ v.dataset.v=S.view;v.innerHTML=h;bind();if(S.view==='zapasy'||S.view==='oblibene')S.vis=visKey()}
 
 function pickBox(inp,list,cb){let t;inp.oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{const r=inp.value.length>1?await api('/api/players?q='+encodeURIComponent(inp.value)):[];
  list.innerHTML=r.slice(0,6).map(p=>`<div class="fac" data-id="${p.id}" data-name="${esc(p.name)}"><span>${esc(p.name)} <small class="na">${p.g==='M'?'muži':'ženy'}</small></span><span class="na">Elo ${p.elo}${p.rank?' · #'+p.rank:''}</span></div>`).join('');
@@ -116,9 +125,9 @@ function tPrehled(d){if(d.pred==null)return `<div class="box note">Pro tento zá
  const pre=d.odds_pre?Object.values(d.odds_pre):null,avg=i=>pre?(pre.reduce((s,x)=>s+x[i],0)/pre.length):null;
  let h=`<div class="box">`;
  if(d.live)h+=big2p(d.live.match,d,'<span style="color:var(--grn)">PREDIKCE TEĎ</span>')+'<div style="height:14px"></div>';
- h+=big2p(d.pred,d,'PREDIKCE MODELU'+(d.pred_low?' <span class="low">nízká spolehlivost – odhad ze žebříčku</span>':''),
+ h+=big2p(d.pred,d,'PREDIKCE MODELU'+(d.pred_low?' <span class="low">nízká spolehlivost</span>':''),
   (d.odds?`<div class="note" style="margin-top:6px">kurz ${d.live?'nejlepší':'před zápasem'} <b class="pa">${f2(d.odds.best_a)}</b> : <b class="pb">${f2(d.odds.best_b)}</b></div>`:'')+
-  `<p class="note">${d.live?'Z předzápasové šance, síly hráčů a skóre (sety, gemy, body, podání). Po každém bodu/gemu se posune.':'Před zápasem: LightGBM'+(d.pred_lr!=null&&!d.pred_low?' · logistická regrese '+pct(d.pred_lr):'')+(d.elo_p!=null?' · Elo '+pct(d.elo_p):'')+'.'}</p>`);
+  `<p class="note">${d.pred_low?esc(d.pred_note||'Odhad – nízká spolehlivost.'):(d.live?'Z předzápasové šance, síly hráčů a skóre (sety, gemy, body, podání). Po každém bodu/gemu se posune.':'Před zápasem: LightGBM'+(d.pred_lr!=null?' · logistická regrese '+pct(d.pred_lr):'')+(d.elo_p!=null?' · Elo '+pct(d.elo_p):'')+'.')}</p>`);
  if(d.live){const L=d.live;
   if(L.game!=null)h+=`<div class="sep"></div><div class="lbl">GEM TEĎ</div><div class="pp2"><div><b class="pa">${pct(L.game)}</b><small>${esc(shortN(d.players[0]))}</small></div><div><b class="pb">${pct(1-L.game)}</b><small>${esc(shortN(d.players[1]))}</small></div></div><p class="note">Z aktuálního stavu bodů a podávajícího.</p>`;
   const [pa,pb]=[L.serve_a,L.serve_b],ps=(MK.setP(pa,pb,0,0,true)+MK.setP(pa,pb,0,0,false))/2,n=Math.max(d.sets.length,1),need=Math.floor(d.best_of/2)+1;
@@ -189,14 +198,10 @@ async function askNotif(){if(!window.Notification){toast('Tento prohlížeč sys
  addEventListener('touchmove',e=>{if(y0==null)return;act=e.touches[0].clientY-y0>70;ptr.classList.toggle('on',act)},{passive:true});
  addEventListener('touchend',async()=>{if(act){ptr.textContent='Obnovuji…';try{if(STATIC){_st0=loadStatic();await _st0;for(let d=-2;d<=2;d++)S.data[d]=ST.all.filter(m=>m.day===d)}else await load(S.day)}catch(e){}render();upd();ptr.textContent='↓ Pusť pro obnovení'}
   ptr.classList.remove('on');act=false;y0=null})})();
-function staticLoop(){const onCh=ids=>{for(const d of Object.keys(S.data))S.data[d]=ST.all.filter(m=>m.day===+d);upd();cacheSave();
-  if(S.view==='zapasy'||S.view==='oblibene'){let full=ST.added;ST.added=false;
-   if(!full)for(const id of ids){const el=document.querySelector(`.m[data-id="${CSS.escape(id)}"]`);const m=ST.byId[id];
-     if(el&&m&&filt([m]).length){const t=document.createElement('div');t.innerHTML=card(m);const n=t.firstChild;n.onclick=()=>openDetail(id);
-       const os=[...el.querySelectorAll('.sc span')].map(x=>x.textContent);[...n.querySelectorAll('.sc span')].forEach((x,i)=>{if(os[i]!==undefined&&os[i]!==x.textContent)x.classList.add('flash')});el.replaceWith(n)}
-     else if(m&&m.day===S.day&&filt([m]).length){full=true;break}}
-   if(full)render();const lp=document.querySelector('h1 .pill');if(lp)lp.textContent=`● ${ST.all.filter(m=>m.status==='live').length} živě`}
-  if(S.detail&&ids.includes(S.detail.id))openDetail(S.detail.id,true);favEvents(ids)};
+function staticLoop(){const onCh=ids=>{const days=new Set([-2,-1,0,1,2]);for(const m of ST.all)days.add(m.day|0);for(const d of days)S.data[d]=ST.all.filter(m=>m.day===+d);upd();cacheSave();
+  if(S.view==='zapasy'||S.view==='oblibene'){paintList(ids);const lp=document.querySelector('h1 .pill');if(lp)lp.textContent=`● ${ST.all.filter(m=>m.status==='live').length} živě`}
+  if(S.detail&&ids.includes(S.detail.id)){const m=ST.byId[S.detail.id];const sig=m&&scoreSig(m);if(m&&S.detail._lsig!==sig){Object.assign(S.detail,m);S.detail._lsig=sig;drawDetail()}}
+  favEvents(ids)};
  startSources(onCh);
  const odd=async()=>{const l=ST.all.filter(m=>m.status==='live'&&m.fs);for(const m of l){if(document.hidden)break;await oddsFor(m);await new Promise(r=>setTimeout(r,700))}onCh(l.map(m=>m.id));setTimeout(odd,30000)};setTimeout(odd,8000);
- setInterval(async()=>{_st0=loadStatic();await _st0;onCh([]);render()},300000)}
+ setInterval(async()=>{try{_st0=loadStatic();await _st0;onCh(ST.all.map(m=>m.id))}catch(e){}},300000)}

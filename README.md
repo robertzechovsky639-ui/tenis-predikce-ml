@@ -43,7 +43,7 @@ Testy: `.venv/bin/python -m pytest tests` · Screenshoty: `.venv/bin/python scri
 | 365scores veřejný JSON | body v gemu + podávající pro živé zápasy | hlavně ATP/WTA/Challenger; ITF často chybí → tam jen sety/gemy |
 | Flashscore odds feed | kurzy na vítěze od sázkových kanceláří (CZ) | jen zápasy, které feed má; jinak „kurzy nedostupné“ |
 
-Nic se nevymýšlí: chybí-li kurzy nebo historie hráče, aplikace to napíše. Demo data (jen při výpadku všech zdrojů nebo TENIS_DEMO=1) jsou označena DEMO.
+Chybí-li kurzy, aplikace to napíše. Chybí-li historie hráče, predikce se odhadne ze žebříčku nebo z úrovně turnaje a je označená jako nízká spolehlivost; zápas, kde jsou oba hráči v datech, dál počítá model beze změny. Demo data (jen při výpadku všech zdrojů nebo TENIS_DEMO=1) jsou označena DEMO.
 
 ## Omezení
 - Historická data končí 2. 6. 2026 (stav mirroru) – Elo/forma nezahrnují posledních ~4,5 měsíce; únava/neaktivita se počítají k tomuto datu.
