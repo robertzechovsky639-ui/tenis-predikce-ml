@@ -124,6 +124,66 @@ assert.ok(neu.every((m, i) => m.server === pbpSrv(i) && m.srvTrust === 3));
   assert.strictEqual(m.pts.join(':'), '2:2');
 }
 
+// Tiebreak: zdroj drží podávajícího prvního bodu. Tečka se otáčí po 1, pak po 2 bodech.
+{
+  const m = { status: 'live', sets: [[6, 6]], pts: [0, 0], server: null, srvTrust: 0, best_of: 3, _accAt: 1 };
+  const pts = [[0, 0], [1, 0], [1, 1], [2, 1], [2, 2], [3, 2]];
+  const want = [1, 2, 2, 1, 1, 2];
+  pts.forEach((p, i) => {
+    assert.strictEqual(TL.applyLive(m, { status: 'live', sets: [[6, 6]], pts: p, server: 1, srvTrust: 1, srv_src: 'firstToServe', src_pts: 'Sofascore' }, { src: 'sofascore', t0: 10 + i }, () => true), true);
+    assert.strictEqual(m.server, want[i], 'bod ' + p.join(':'));
+  });
+  // Opakované stejné hlášení v novém bloku je staré: [3,3] podává hráč 2.
+  assert.strictEqual(TL.applyLive(m, { status: 'live', sets: [[6, 6]], pts: [3, 3], server: 1, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 20 }, () => true), true);
+  assert.strictEqual(m.server, 2);
+  // Nové hlášení (jiný hráč) má přednost a přepíše, kdo podával první bod.
+  const fresh = { status: 'live', sets: [[6, 6]], pts: [2, 1], server: 1, srvTrust: 1, tbFirst: 1, tbReported: 1, tbBlock: 0, best_of: 3, _accAt: 1 };
+  assert.strictEqual(TL.applyLive(fresh, { status: 'live', sets: [[6, 6]], pts: [2, 2], server: 2, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 21 }, () => true), true);
+  assert.strictEqual(fresh.server, 2);
+  assert.strictEqual(fresh.tbFirst, 2);
+}
+
+// Supertiebreak na 10: stejné střídání i po sedmém bodu, v rozhodujícím setu i jako samostatný set.
+{
+  const m = { status: 'live', sets: [[6, 4], [4, 6], [6, 6]], pts: [0, 0], server: null, srvTrust: 0, best_of: 3, _accAt: 1 };
+  const steps = [[[0, 0], 1], [[1, 0], 2], [[8, 8], 1], [[9, 8], 2]];
+  steps.forEach(([p, want], i) => {
+    TL.applyLive(m, { status: 'live', sets: m.sets, pts: p, server: 1, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 30 + i }, () => true);
+    assert.strictEqual(m.server, want, 'super ' + p.join(':'));
+  });
+  const mtb = { status: 'live', sets: [[6, 4], [4, 6]], pts: null, server: null, srvTrust: 0, best_of: 3, match_tb: true, _accAt: 1 };
+  TL.applyLive(mtb, { status: 'live', sets: [[6, 4], [4, 6]], pts: [0, 0], server: 1, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 40 }, () => true);
+  assert.strictEqual(mtb.server, 1);
+  TL.applyLive(mtb, { status: 'live', sets: [[6, 4], [4, 6]], pts: [1, 0], server: 1, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 41 }, () => true);
+  assert.strictEqual(mtb.server, 2);
+  TL.applyLive(mtb, { status: 'live', sets: [[6, 4], [4, 6]], pts: [5, 4], server: 1, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 42 }, () => true);
+  assert.strictEqual(mtb.server, TL.tbNow(1, [5, 4]));
+}
+
+// Vstup do tiebreaku a další set: příjemce prvního bodu podává. Čerstvý zdroj má přednost, staré hlášení ne.
+{
+  const entered = { status: 'live', sets: [[6, 5]], pts: [0, 0], server: 1, srvTrust: 1, best_of: 3, _accAt: 1 };
+  assert.strictEqual(TL.applyLive(entered, { status: 'live', sets: [[6, 6]], pts: [0, 0], server: 1, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 50 }, () => true), true);
+  assert.strictEqual(entered.server, 2);
+  const freshIn = { status: 'live', sets: [[6, 5]], pts: [0, 0], server: 1, srvTrust: 1, best_of: 3, _accAt: 1 };
+  TL.applyLive(freshIn, { status: 'live', sets: [[6, 6]], pts: [0, 0], server: 2, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 51 }, () => true);
+  assert.strictEqual(freshIn.server, 2);
+  const done = { status: 'live', sets: [[6, 6]], pts: [0, 0], server: null, srvTrust: 0, best_of: 3, _accAt: 1 };
+  TL.applyLive(done, { status: 'live', sets: [[6, 6]], pts: [0, 0], server: 1, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 52 }, () => true);
+  TL.applyLive(done, { status: 'live', sets: [[7, 6]], pts: [0, 0], server: null, srvTrust: 0, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 53 }, () => true);
+  assert.strictEqual(done.server, 2);
+  assert.strictEqual(done.srv_src, 'tb-next');
+  const sticky = { status: 'live', sets: [[6, 6]], pts: [0, 0], server: null, srvTrust: 0, best_of: 3, _accAt: 1 };
+  TL.applyLive(sticky, { status: 'live', sets: [[6, 6]], pts: [0, 0], server: 1, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 54 }, () => true);
+  TL.applyLive(sticky, { status: 'live', sets: [[7, 6]], pts: [0, 0], server: 1, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 55 }, () => true);
+  assert.strictEqual(sticky.server, 2);
+  const moved = { status: 'live', sets: [[6, 6]], pts: [0, 0], server: null, srvTrust: 0, best_of: 3, _accAt: 1 };
+  TL.applyLive(moved, { status: 'live', sets: [[6, 6]], pts: [0, 0], server: 1, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 56 }, () => true);
+  TL.applyLive(moved, { status: 'live', sets: [[6, 6]], pts: [1, 0], server: 2, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 57 }, () => true);
+  TL.applyLive(moved, { status: 'live', sets: [[7, 6]], pts: [0, 0], server: 1, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 58 }, () => true);
+  assert.strictEqual(moved.server, 1);
+}
+
 // nový gem bez hlášeného podávajícího smaže starého — žádný odhad
 {
   const m = { status: 'live', sets: [[1, 1]], pts: [3, 0], server: 1, srvTrust: 3, src_pts: 'Sofascore', _accAt: 1 };
