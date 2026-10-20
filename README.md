@@ -53,18 +53,18 @@ Nic se nevymýšlí: chybí-li kurzy nebo historie hráče, aplikace to napíše
   Celkem tedy 0,5–4 s od změny ve zdroji; samotné zdroje mohou mít vlastní zpoždění (CDN cache).
 
 ## Nasazení (veřejná adresa)
-Dockerfile při buildu stáhne data, natrénuje model (~5 min, potřeba ~4 GB RAM) a spustí server na portu \`$PORT\` (výchozí 7860).
+Dockerfile při buildu stáhne data, natrénuje model (~5 min, potřeba ~4 GB RAM) a spustí server na portu `$PORT` (výchozí 7860).
 
 **Hugging Face Spaces (doporučeno, zdarma 24/7, 16 GB RAM):** huggingface.co → New Space → SDK *Docker* →
-v Space nastav *Files → Import from GitHub* (nebo \`git push\` tohoto repa do repozitáře Space). Hlavička README výše už Space konfiguruje.
-Adresa pak bude \`https://<uživatel>-<space>.hf.space\`.
+v Space nastav *Files → Import from GitHub* (nebo `git push` tohoto repa do repozitáře Space). Hlavička README výše už Space konfiguruje.
+Adresa pak bude `https://<uživatel>-<space>.hf.space`.
 
 **Render.com:** New → Web Service → toto repo → Runtime *Docker*. Free plán (512 MB) na trénink při buildu nestačí –
 zvol placený plán se ≥ 2 GB, nebo natrénuj lokálně a model nahraj (Git LFS). Free plán po 15 min nečinnosti usíná.
 
-**Fly.io:** \`fly launch\` (Dockerfile se použije automaticky), \`fly scale memory 1024\`; build probíhá na builderu Fly.
+**Fly.io:** `fly launch` (Dockerfile se použije automaticky), `fly scale memory 1024`; build probíhá na builderu Fly.
 
-Živé aktualizace běží přes SSE (\`/api/stream\`); server posílá \`Cache-Control: no-cache\` a \`X-Accel-Buffering: no\`, takže
+Živé aktualizace běží přes SSE (`/api/stream`); server posílá `Cache-Control: no-cache` a `X-Accel-Buffering: no`, takže
 fungují i za reverzní proxy.
 
-Lokálně trvale: \`setsid nohup ./run_server.sh &\` (automatický restart).
+Lokálně trvale: `setsid nohup ./run_server.sh &` (automatický restart).
