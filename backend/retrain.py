@@ -49,7 +49,8 @@ def main():
         gbm.save_model(str(OUT / "gbm.txt")); pickle.dump(dict(scaler=sc, lr=lr, features=F.FEATURES), open(OUT / "logreg.pkl", "wb"))
         old_m.update(trained_at=entry["at"], n_matches=entry["n_matches"], data_to=entry["data_to"], last_holdout=dict(lightgbm=mn, elo=me, period=entry["holdout"], n=len(ho)))
         json.dump(old_m, open(OUT / "metrics.json", "w"), ensure_ascii=False, indent=1)
-    pickle.dump(F.freeze(st), open(OUT / "state.pkl", "wb"))  # stav (Elo/forma) vždy aktuální
+    fz = F.freeze(st); fz["fs_seen"] = set(ingest.pd.read_csv(ingest.CSV).fs_id) if ingest.CSV.exists() else set()  # už započtené v trénovacích datech
+    pickle.dump(fz, open(OUT / "state.pkl", "wb"))  # stav (Elo/forma) vždy aktuální
     df[["date", "wid", "lid", "winner_name", "loser_name", "tourney_name", "surface", "round", "score", "circuit"]].to_pickle(OUT / "matches.pkl")
     hp = OUT / "retrain_history.json"; hist = json.load(open(hp)) if hp.exists() else []
     hist.append(entry); json.dump(hist[-200:], open(hp, "w"), ensure_ascii=False, indent=1)

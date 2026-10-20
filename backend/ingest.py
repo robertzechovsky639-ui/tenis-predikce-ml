@@ -29,7 +29,7 @@ def update_csv():
 
 def apply_to_state(P, rows):
     """Průběžná aktualizace: započte zápasy, které ve stavu ještě nejsou (podle dvojice a data ±10 dní)."""
-    n = 0; seen = P.s.setdefault("fs_seen", set())
+    n = 0; seen = set(P.s.setdefault("fs_seen", set())); P.s["fs_seen"] = seen
     for r in rows.itertuples(index=False):
         if r.fs_id in seen: continue
         w = P.find(r.g, str(r.winner_slug).replace("-", " ") or r.winner_name, r.winner_name) or P.find(r.g, None, r.winner_name)
