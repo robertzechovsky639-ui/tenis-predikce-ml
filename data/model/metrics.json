@@ -1,72 +1,72 @@
 {
- "trained_at": "2026-10-20T12:13:56",
- "n_matches": 1740498,
+ "trained_at": "2026-10-20T11:38:45+00:00",
+ "n_matches": 1747617,
  "data_from": "1967-12-25",
- "data_to": "2026-06-02",
+ "data_to": "2026-10-21",
  "train_rows": 1572945,
- "test_rows": 153987,
+ "test_rows": 159917,
  "split": "trénink 1970–2023, test 2024–2026",
  "gbm_iterations": 333,
  "test": {
   "lightgbm": {
-   "accuracy": 0.7035,
-   "log_loss": 0.5617,
-   "brier": 0.1912,
-   "n": 153987
+   "accuracy": 0.7016,
+   "log_loss": 0.5643,
+   "brier": 0.1922,
+   "n": 159917
   },
   "logreg": {
-   "accuracy": 0.7016,
-   "log_loss": 0.565,
-   "brier": 0.1924,
-   "n": 153987
+   "accuracy": 0.6995,
+   "log_loss": 0.5677,
+   "brier": 0.1934,
+   "n": 159917
   },
   "elo": {
-   "accuracy": 0.6926,
-   "log_loss": 0.5745,
-   "brier": 0.1964,
-   "n": 153987
+   "accuracy": 0.6907,
+   "log_loss": 0.577,
+   "brier": 0.1974,
+   "n": 159917
   },
   "rank": {
-   "accuracy": 0.6592,
-   "log_loss": 0.6391,
-   "brier": 0.2235,
-   "n": 153987
+   "accuracy": 0.6581,
+   "log_loss": 0.6399,
+   "brier": 0.2239,
+   "n": 159917
   }
  },
  "by_circuit": {
   "ATP": {
    "lightgbm": {
     "accuracy": 0.6634,
-    "log_loss": 0.6009,
-    "brier": 0.2083,
-    "n": 10579
+    "log_loss": 0.6039,
+    "brier": 0.2091,
+    "n": 12331
    },
    "elo": {
-    "accuracy": 0.6469,
-    "log_loss": 0.6193,
-    "brier": 0.2158,
-    "n": 10579
+    "accuracy": 0.6476,
+    "log_loss": 0.6219,
+    "brier": 0.2164,
+    "n": 12331
    }
   },
   "Challenger": {
    "lightgbm": {
-    "accuracy": 0.6657,
-    "log_loss": 0.6047,
-    "brier": 0.2095,
-    "n": 25250
+    "accuracy": 0.6629,
+    "log_loss": 0.6094,
+    "brier": 0.2112,
+    "n": 28307
    },
    "elo": {
-    "accuracy": 0.6592,
-    "log_loss": 0.6148,
-    "brier": 0.2133,
-    "n": 25250
+    "accuracy": 0.6564,
+    "log_loss": 0.6191,
+    "brier": 0.2149,
+    "n": 28307
    }
   },
   "ITF muži": {
    "lightgbm": {
     "accuracy": 0.7196,
     "log_loss": 0.549,
-    "brier": 0.1853,
+    "brier": 0.1852,
     "n": 43085
    },
    "elo": {
@@ -92,16 +92,16 @@
   },
   "WTA": {
    "lightgbm": {
-    "accuracy": 0.6753,
-    "log_loss": 0.5876,
-    "brier": 0.2027,
-    "n": 14029
+    "accuracy": 0.6738,
+    "log_loss": 0.5884,
+    "brier": 0.203,
+    "n": 15150
    },
    "elo": {
-    "accuracy": 0.6615,
-    "log_loss": 0.6032,
-    "brier": 0.2094,
-    "n": 14029
+    "accuracy": 0.6607,
+    "log_loss": 0.6044,
+    "brier": 0.2096,
+    "n": 15150
    }
   }
  },
@@ -123,5 +123,21 @@
   "surf_grass": 0.0005,
   "is_qual": 0.003,
   "female": 0.004
+ },
+ "last_holdout": {
+  "lightgbm": {
+   "accuracy": 0.6727,
+   "log_loss": 0.6054,
+   "brier": 0.2083,
+   "n": 3431
+  },
+  "elo": {
+   "accuracy": 0.6645,
+   "log_loss": 0.6128,
+   "brier": 0.2111,
+   "n": 3431
+  },
+  "period": "2026-08-26 – 2026-10-21",
+  "n": 3431
  }
 }

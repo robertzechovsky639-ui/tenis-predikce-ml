@@ -8,6 +8,11 @@ OUT = ROOT / "dist"
 
 def main():
     t0 = time.time(); svc = Service()
+    # průběžné učení: dohrané zápasy z posledních dnů -> Elo/forma/H2H ve stavu (bez přetrénování)
+    import ingest, pandas as pd
+    rows = ingest.fetch_finished(range(-3, 1))
+    if ingest.CSV.exists(): rows = pd.concat([pd.read_csv(ingest.CSV), rows]).drop_duplicates("fs_id", keep="last")
+    n_inc = ingest.apply_to_state(svc.P, rows.sort_values("date")); print("průběžně započteno:", n_inc, "zápasů z", len(rows))
     svc.poll_once(True); svc.opool.shutdown(wait=True)  # počkat na kurzy
     svc.opool = __import__("concurrent.futures").futures.ThreadPoolExecutor(1)
     svc.poll_once(True)
@@ -23,7 +28,9 @@ def main():
             json.dump(det, open(OUT / "data" / "m" / f"{m['id']}.json", "w"), ensure_ascii=False, separators=(",", ":"))
     P = svc.P; s = P.s
     json.dump(dict(generated=time.time(), status=svc.status, matches=allm), open(OUT / "data" / "matches.json", "w"), ensure_ascii=False, separators=(",", ":"))
-    shutil.copy(F.ROOT / "data" / "model" / "metrics.json", OUT / "data" / "model.json")
+    mj = json.load(open(F.ROOT / "data" / "model" / "metrics.json")); mj["incremental"] = dict(applied=n_inc, at=time.time())
+    hp = F.ROOT / "data" / "model" / "retrain_history.json"; mj["history"] = json.load(open(hp)) if hp.exists() else []
+    json.dump(mj, open(OUT / "data" / "model.json", "w"), ensure_ascii=False)
     json.dump(dict(features=F.FEATURES, mean=P.sc.mean_.tolist(), scale=P.sc.scale_.tolist(), coef=P.lr.coef_[0].tolist(),
                    intercept=float(P.lr.intercept_[0]), ref_day=P.ref_day), open(OUT / "data" / "lr.json", "w"))
     # hráči aktivní od 2022 (pro vyhledávání a vlastní predikci v prohlížeči)

@@ -1,0 +1,29 @@
+[
+ {
+  "at": "2026-10-20T11:38:45+00:00",
+  "n_matches": 1747617,
+  "data_to": "2026-10-21",
+  "holdout": "2026-08-26 – 2026-10-21",
+  "holdout_n": 3431,
+  "candidate": {
+   "accuracy": 0.6727,
+   "log_loss": 0.6054,
+   "brier": 0.2083,
+   "n": 3431
+  },
+  "current": {
+   "accuracy": 0.6741,
+   "log_loss": 0.6029,
+   "brier": 0.2073,
+   "n": 3431
+  },
+  "elo": {
+   "accuracy": 0.6645,
+   "log_loss": 0.6128,
+   "brier": 0.2111,
+   "n": 3431
+  },
+  "published": true,
+  "reason": "prošel bránou (lepší než Elo)"
+ }
+]

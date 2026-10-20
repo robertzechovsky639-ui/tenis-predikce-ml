@@ -72,12 +72,22 @@ Lokálně trvale: `setsid nohup ./run_server.sh &` (automatický restart).
 ## Veřejná verze na GitHub Pages (bez serveru)
 **https://robertzechovsky639-ui.github.io/tenis-predikce-ml/** – na iPhonu Safari → Sdílet → Přidat na plochu.
 
-- **Živé skóre přímo v prohlížeči každé 4 s** (ESPN scoreboard + 365scores, obojí povoluje CORS); živá pravděpodobnost
-  se počítá Markovovým modelem v JS (`web/static.js`). Živé kurzy (Flashscore odds feed) každých 30 s a při otevření detailu.
-- **Předzápasové predikce, detaily, rozpis** generuje workflow `.github/workflows/pages.yml` (cron každých 5 min – GitHub
-  ho v praxi spouští se zpožděním 5–20 min; + ručně a při push). Model se bere z release `model` (`model.tar.gz`), nepřetrénovává se.
+- **Živé skóre přímo v prohlížeči** (CORS): Sofascore (`api.sofascore1.com`, všechny úrovně vč. ITF, body) každých 1,5 s,
+  365scores (body + podávající) 2 s, ESPN (ATP/WTA) 3 s; při chybě/429 se interval zdvojnásobuje až na 30 s. Živá pravděpodobnost
+  Markovovým modelem v JS (`web/static.js`), překreslují se jen změněné karty, poslední data se drží v localStorage (okamžité první vykreslení).
+  Živé kurzy (Flashscore odds feed) postupně ~1 zápas / 0,7 s a při otevření detailu.
+- **Předzápasové predikce, detaily, rozpis** generuje workflow `.github/workflows/pages.yml` (cron každých 10 min (měkký limit Pages ~10 nasazení/h) – GitHub
+  ho v praxi spouští se zpožděním; + ručně a při push). Model se bere z release `model` (`model.tar.gz`), nepřetrénovává se.
 - Vlastní predikce (Predikce, Chat) v prohlížeči používá logistickou regresi (LightGBM jen pro zápasy z exportu); H2H tam není.
 - Flashscore rozpis/skóre (Challenger, ITF) prohlížeč číst nemůže (CORS preflight), takže zápasy, které nemá ani ESPN ani 365scores,
   se aktualizují jen s během workflow.
 - Nový model: lokálně `train.py` + `export_matches.py`, pak
   `tar czf model.tar.gz -C data/model gbm.txt logreg.pkl state.pkl matches.pkl && gh release upload model model.tar.gz --clobber`.
+
+## Průběžné učení (i když je aplikace zavřená)
+- **Každý export (≈ 10 min):** dohrané zápasy z Flashscore (−3..0 dní, všechny úrovně vč. ITF) + `live_results.csv` se započtou do
+  Elo / Elo na povrchu / formy / H2H (`backend/ingest.py`, `Predictor.apply_result`) – bez přetrénování.
+- **Denně 02:30 UTC (`learn.yml`):** čerstvé TennisMyLife CSV + ingest výsledků (kumulativně v release jako `live_results.csv`),
+  přepočet všech příznaků od 1968, kandidát natrénovaný do začátku holdoutu (posledních 8 týdnů). Brána: kandidát musí porazit Elo
+  na holdoutu o ≥ 0,003 log loss a nesmí být o víc než 0,01 horší než minule publikovaný kandidát. Pak refit na všech datech a nahrání
+  `model.tar.gz` do release `model`; jinak zůstává starý model (stav Elo/formy se aktualizuje vždy). Historie: `retrain_history.json`, záložka Model.

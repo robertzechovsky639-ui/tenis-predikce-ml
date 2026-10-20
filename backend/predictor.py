@@ -20,7 +20,7 @@ class Predictor:
         lr = pickle.load(open(MD / "logreg.pkl", "rb")); self.sc, self.lr = lr["scaler"], lr["lr"]
         self.s = pickle.load(open(MD / "state.pkl", "rb"))
         # referenční den = konec historických dat (aby únava/neaktivita nebyly zkreslené mezerou v datech)
-        self.ref_day = max(self.s["last"].values()) + 1
+        self.ref_day = min(datetime.date.today().toordinal(), max(self.s["last"].values()) + 1)
         self.matches = pd.read_pickle(MD / "matches.pkl")
         self.full, self.sur = {}, {}
         for pid, nm in self.s["name"].items():
@@ -101,3 +101,25 @@ class Predictor:
         res.sort(reverse=True)
         return [dict(id=p, name=nm, g=p[0], matches=n, elo=round(self.s["elo"].get(p, 1500)),
                      rank=int(self.s["rank"][p]) if p in self.s["rank"] else None) for n, p, nm in res[:limit]]
+
+    # ---------- průběžné učení: započtení nově dohraných zápasů do stavu (Elo, povrch, forma, H2H) ----------
+    def apply_result(self, w, l, surf, day):
+        s = self.s; K = F.kfac
+        for k in ("elo", "n", "sn", "selo", "recent", "dates", "resid", "h2h", "last"): s.setdefault(k, {})
+        ew, el = s["elo"].get(w, 1500.0), s["elo"].get(l, 1500.0); e = F.expct(ew, el)
+        s["elo"][w] = ew + K(s["n"].get(w, 0)) * (1 - e); s["elo"][l] = el - K(s["n"].get(l, 0)) * (1 - e)
+        sw, sl = s["selo"].get((w, surf), 1500.0), s["selo"].get((l, surf), 1500.0); se = F.expct(sw, sl)
+        s["selo"][(w, surf)] = sw + K(s["sn"].get((w, surf), 0)) * (1 - se); s["selo"][(l, surf)] = sl - K(s["sn"].get((l, surf), 0)) * (1 - se)
+        for p in (w, l): s["n"][p] = s["n"].get(p, 0) + 1; s["sn"][(p, surf)] = s["sn"].get((p, surf), 0) + 1
+        for p, res, ex in ((w, 1, e), (l, 0, 1 - e)):
+            s["recent"][p] = (s["recent"].get(p, []) + [res])[-10:]; s["dates"][p] = (s["dates"].get(p, []) + [day])[-40:]
+            s["resid"][p] = (s["resid"].get(p, []) + [(day, res - ex)])[-60:]; s["last"][p] = max(day, s["last"].get(p, 0))
+        s["h2h"][(w, l)] = s["h2h"].get((w, l), 0) + 1
+
+    def known_result(self, a, b, day, window=10):
+        m = self.matches
+        if not hasattr(self, "_recent_pairs"):
+            r = m[m.date >= m.date.max() - __import__("pandas").Timedelta(days=60)]
+            self._recent_pairs = {}
+            for w, l, d in zip(r.wid, r.lid, r.date): self._recent_pairs.setdefault(frozenset((w, l)), []).append(d.toordinal())
+        return any(abs(d - day) <= window for d in self._recent_pairs.get(frozenset((a, b)), []))

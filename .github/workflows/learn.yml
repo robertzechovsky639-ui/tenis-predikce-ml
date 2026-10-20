@@ -1,0 +1,40 @@
+name: Učení modelu (denně)
+on:
+  schedule:
+    - cron: "30 2 * * *"   # 04:30 pražského letního času (03:30 v zimě)
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: learn
+  cancel-in-progress: false
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Historická data (cache, obnova týdně)
+        uses: actions/cache@v4
+        with: { path: data/raw/atp, key: "sackmann-atp-${{ github.run_number }}", restore-keys: "sackmann-atp-" }
+      - uses: actions/cache@v4
+        with: { path: data/raw/wta, key: "sackmann-wta-${{ github.run_number }}", restore-keys: "sackmann-wta-" }
+      - run: python scripts/download_data.py
+      - name: Aktuální model + průběžné výsledky
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download model -p model.tar.gz -R "${{ github.repository }}" && tar xzf model.tar.gz -C data/model
+          gh release download model -p live_results.csv -D data/raw -R "${{ github.repository }}" || true
+      - name: Ingest + přetrénování s bránou kvality
+        working-directory: backend
+        run: python retrain.py
+      - name: Publikace (stav vždy, model jen když prošel bránou)
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          cd data/model && tar czf ../../model.tar.gz gbm.txt logreg.pkl state.pkl matches.pkl metrics.json retrain_history.json && cd ../..
+          gh release upload model model.tar.gz data/raw/live_results.csv --clobber -R "${{ github.repository }}"
+          gh workflow run pages.yml -R "${{ github.repository }}"
