@@ -141,7 +141,7 @@ async function scheduleFallback(onChange) { const run = async () => { try {
         players: [{ name: h.name, country: '' }, { name: a.name, country: '' }], pids: [null, null], pred: null, odds: null };
       m.day = dayOf(m.ts); await addPred(m); ST.all.push(m); ST.byId[m.id] = m; indexM(m); ch.push(m.id); ST.added = true }
     ST.srcOk.schedule = Date.now(); if (ch.length) onChange(ch) } catch (e) { ST.srcOk.scheduleErr = String(e) } setTimeout(run, 300000) };
-  setTimeout(run, ST.generated && Date.now() / 1000 - ST.generated > 1800 ? 1000 : 60000) }
+  setTimeout(run, !ST.generated || Date.now() / 1000 - ST.generated > 1800 ? 1000 : 60000) }
 function health() { const now = Date.now(); return Object.keys(SOURCES).concat(['sofaDetail']).map(k => { const ok = ST.srcOk[k], err = ST.srcOk[k + 'Err'];
   return { k, state: err && !(ok > now - 10000) ? 'err' : ok > now - 15000 ? 'ok' : 'wait' } }) }
 const SOURCES = { sofascore: { fn: srcSofa, base: 1500 }, s365: { fn: src365, base: 2000 }, espn: { fn: srcESPN, base: 3000 } };
