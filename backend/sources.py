@@ -103,6 +103,14 @@ def odds(fsinfo):
 S365 = "https://webws.365scores.com/web/games/current/?appTypeId=5&langId=1&timezoneName=Europe%2FPrague&userCountryId=1&sports=3"
 PT = {0: 0, 15: 1, 30: 2, 40: 3, 50: 4}
 
+def map_point(raw):
+    """0/15/30/40/50 jsou body gemu. Ostatní čísla (1, 2, 7, …) jsou body tiebreaku, ne nula."""
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return PT[n] if n in PT else n
+
 def live365():
     """Doplněk pro živé zápasy: body v gemu a podávající (365scores, veřejný JSON). Klíč = dvojice příjmení."""
     d = json.loads(_get(S365)); out = {}
@@ -113,12 +121,14 @@ def live365():
         gm = st.get("Game") or {}
         sets = [[int(s["homeCompetitorScore"]), int(s["awayCompetitorScore"])] for n, s in st.items()
                 if n.startswith("Set ") and s.get("homeCompetitorScore", -1) >= 0]
+        raw_h, raw_a = gm.get("homeCompetitorScore", 0), gm.get("awayCompetitorScore", 0)
+        pts = (map_point(raw_h), map_point(raw_a))
         try:
-            pts = (PT.get(int(gm.get("homeCompetitorScore", 0)), 0), PT.get(int(gm.get("awayCompetitorScore", 0)), 0))
+            adv = int(raw_h) == 50 or int(raw_a) == 50
         except (TypeError, ValueError):
-            pts = (0, 0)
-        if pts == (4, 3) or pts == (3, 4): pass
-        elif 4 in pts: pts = (4, 3) if pts[0] == 4 else (3, 4)
+            adv = False
+        if adv and pts not in ((4, 3), (3, 4)):
+            pts = (4, 3) if int(raw_h) == 50 else (3, 4)
         srv = 1 if h.get("inPossession") else 2 if a.get("inPossession") else None
         key = frozenset((surname_key(h.get("name", "")), surname_key(a.get("name", ""))))
         out[key] = dict(pts=pts, server=srv, sets=sets, home=surname_key(h.get("name", "")), pts_raw=[gm.get("homeCompetitorScore"), gm.get("awayCompetitorScore")])

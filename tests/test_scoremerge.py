@@ -1,5 +1,6 @@
 import pathlib, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
+import markov
 import scoremerge as SM
 
 
@@ -18,7 +19,8 @@ def test_behind_score_and_flip_do_not_replace():
 
 
 def test_negative_placeholder_sets_are_not_ahead():
-    assert SM.norm_sets([[6, 4], [-1, -1], [0, 0]]) == [[6, 4]]
+    assert SM.norm_sets([[6, 4], [-1, -1], [0, 0]]) == [[6, 4], [0, 0]]
+    assert SM.norm_sets([[6, 5], [0, 0]]) == [[6, 5]]
     assert SM.cmp_score([[6, 4]], None, [[6, 4], [-1, -1]], None) == 0
 
 
@@ -51,3 +53,75 @@ def test_ahead_score_is_kept():
     nxt = _m([[6, 4], [2, 1]], [0, 0], server=2, trust=1)
     assert SM.keep_score(prev, nxt) is nxt
     assert nxt["sets"] == [[6, 4], [2, 1]]
+
+
+def test_tiebreak_set_then_zero_advances_and_stale_does_not():
+    # 6:7 v tiebreaku je dohraný set. Čerstvější 0:0 dalšího setu jde dopředu, kratší starý stav ne.
+    assert SM.norm_sets([[6, 3], [6, 7], [0, 0]]) == [[6, 3], [6, 7], [0, 0]]
+    bare = SM.split_live([[6, 3], [6, 7]], "live")
+    opened = SM.split_live([[6, 3], [6, 7], [0, 0]], "live")
+    assert bare["n"] == opened["n"] == 3
+    assert bare["cur"] == opened["cur"] == [0, 0]
+    assert bare["done"] == [[6, 3], [6, 7]]
+    assert opened["done"] == [[6, 3], [6, 7]]
+    won = SM.split_live([[6, 3], [7, 6]], "live")
+    assert won["n"] == 3 and won["done"] == [[6, 3], [7, 6]] and won["cur"] == [0, 0]
+    assert SM.cmp_score([[6, 3], [6, 7]], [0, 0], [[6, 3], [6, 7], [0, 0]], [0, 0]) == 1
+    assert SM.cmp_score([[6, 3], [6, 7], [0, 0]], [0, 0], [[6, 3], [6, 7]], [0, 0]) == -1
+    assert SM.cmp_score([[6, 3], [6, 6]], [3, 3], [[6, 3], [6, 7], [0, 0]], [0, 0]) == 1
+    assert SM.cmp_score([[6, 3], [7, 6]], [0, 0], [[6, 3], [6, 6]], [6, 5]) == -1
+    # Nový set 0:0 je dopředu i když body klesnou. Samotné body a podávající zůstanou.
+    assert SM.cmp_score([[6, 3], [6, 7]], [1, 0], [[6, 3], [6, 7], [0, 0]], [0, 0]) == 1
+    prev = _m([[6, 3], [6, 6]], [6, 5], server=1, trust=1, src="Sofascore")
+    fresh = _m([[6, 3], [6, 7], [0, 0]], [0, 0], server=2, trust=1, src="365scores")
+    SM.keep_score(prev, fresh)
+    assert fresh["sets"] == [[6, 3], [6, 7], [0, 0]] and fresh["pts"] == [0, 0]
+    stale = _m([[6, 3], [6, 6]], [6, 6], server=1, trust=1, src="Sofascore")
+    SM.keep_score(fresh, stale)
+    assert stale["sets"] == [[6, 3], [6, 7], [0, 0]] and stale["pts"] == [0, 0]
+    held = _m([[6, 3], [6, 7], [0, 0]], [0, 0], server=2, trust=1, src="365scores")
+    SM.keep_score(_m([[6, 3], [6, 7]], [1, 0], server=1, trust=1, src="Sofascore"), held)
+    assert held["sets"] == [[6, 3], [6, 7], [0, 0]]
+    assert held["pts"] == [1, 0] and held["server"] == 1 and held["srv_trust"] == 1
+    # Dohrání zápasu smí zahodit otevřené 0:0, ne vrátit se k nižšímu skóre.
+    done = _m([[6, 3], [6, 4]], None, status="finished")
+    SM.keep_score(_m([[6, 3], [6, 4], [0, 0]], [0, 0]), done)
+    assert done["status"] == "finished" and done["sets"] == [[6, 3], [6, 4]]
+    a = markov.live(0.44, [tuple(s) for s in bare["done"]], tuple(bare["cur"]), (0, 0), 1, False, 3)
+    b = markov.live(0.44, [tuple(s) for s in opened["done"]], tuple(opened["cur"]), (0, 0), 1, False, 3)
+    stuck = markov.live(0.44, [(6, 3)], (6, 7), (0, 0), 1, False, 3)
+    assert 0.05 < a["set"] < 0.95
+    assert abs(a["set"] - b["set"]) < 1e-12 and abs(a["match"] - b["match"]) < 1e-12
+    assert stuck["set"] == 0
+
+
+def test_finished_tiebreak_points_close_the_set_immediately():
+    sets, pts, closed = SM.close_finished_tb([[6, 3], [6, 6]], [7, 5], 3)
+    assert closed and sets == [[6, 3], [7, 6]] and pts == [0, 0]
+    sets, pts, closed = SM.close_finished_tb([[6, 3], [6, 6]], [5, 7], 3)
+    assert closed and sets == [[6, 3], [6, 7]] and pts == [0, 0]
+    _, _, closed = SM.close_finished_tb([[6, 3], [6, 6]], [5, 3], 3)
+    assert not closed
+    _, _, closed = SM.close_finished_tb([[6, 4], [4, 6], [6, 6]], [8, 6], 3)
+    assert not closed
+    sets, pts, closed = SM.close_finished_tb([[6, 4], [4, 6], [6, 6]], [10, 8], 3)
+    assert closed and sets[-1] == [7, 6] and pts == [0, 0]
+    prev = _m([[6, 3], [6, 6]], [5, 4], server=1, trust=1)
+    nxt = _m([[6, 3], [6, 6]], [7, 5], server=1, trust=1, src="365scores")
+    nxt["best_of"] = 3
+    SM.keep_score(prev, nxt)
+    assert nxt["sets"] == [[6, 3], [7, 6]] and nxt["pts"] == [0, 0] and nxt["pts_raw"] == [0, 0]
+    stale = _m([[6, 3], [6, 6]], [6, 6], server=2, trust=1)
+    SM.keep_score(nxt, stale)
+    assert stale["sets"] == [[6, 3], [7, 6]] and stale["pts"] == [0, 0]
+
+
+def test_map_point_keeps_tiebreak_counts():
+    import sources
+    assert sources.map_point(7) == 7
+    assert sources.map_point(15) == 1
+    assert sources.map_point(50) == 4
+    assert sources.map_point(5) == 5
+    assert sources.map_point(0) == 0
+    assert sources.map_point("40") == 3
+    assert sources.map_point("x") == 0

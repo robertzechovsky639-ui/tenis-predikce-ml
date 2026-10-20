@@ -78,17 +78,17 @@ async function loadStatic() { const r = await fetch('data/matches.json', { cache
 function applyData(d) {
   ST.status = d.status; ST.generated = d.generated; ST.all = d.matches; ST.byId = {}; ST.byPair = {};
   for (const m of ST.all) { m.day = m.status === 'live' ? 0 : dayOf(m.ts); ST.byId[m.id] = m; indexM(m) } }
-function liveKey(m) { let s = ''; const sets = m.sets || []; for (let i = 0; i < sets.length; i++) s += sets[i][0] + '-' + sets[i][1] + ','; const pts = m.pts; return m.pred + '|' + (m.best_of || 3) + '|' + m.g + '|' + (m.server || 0) + '|' + s + '|' + (pts ? pts[0] + ':' + pts[1] : '') + '|' + (m.odds ? m.odds.best_a + ':' + m.odds.best_b : ''); }
+function liveKey(m) { let s = ''; const sets = m.sets || []; for (let i = 0; i < sets.length; i++) s += sets[i][0] + '-' + sets[i][1] + ','; const pts = m.pts; const sp = TenisLive.liveSplit(sets, m.status); const cur = sp.cur ? sp.cur[0] + ':' + sp.cur[1] : ''; return m.pred + '|' + (m.best_of || 3) + '|' + m.g + '|' + (m.server || 0) + '|' + sp.n + '|' + cur + '|' + s + '|' + (pts ? pts[0] + ':' + pts[1] : '') + '|' + (m.odds ? m.odds.best_a + ':' + m.odds.best_b : ''); }
 function liveCalc(m) { if (m.status !== 'live' || m.pred == null) { m.live = null; m._lk = ''; return }
   const lk = liveKey(m); if (m.live && m._lk === lk) return; m._lk = lk;
   const pts = m.pts || [0, 0]; const bo = m.best_of || 3;
   const view = TenisLive.tbView(m.sets, pts, bo, m.match_tb);
   let done, cur, matchTb = false, tbTo = 7;
-  if (view && view.kind === 'match') { done = (m.sets || []).slice(); cur = [0, 0]; matchTb = true; tbTo = view.target; }
+  if (view && view.kind === 'match') { done = TenisLive.liveSplit(m.sets, 'finished').done; cur = [0, 0]; matchTb = true; tbTo = view.target; }
   else {
-    done = (m.sets || []).slice(0, -1); cur = m.sets && m.sets.length ? m.sets[m.sets.length - 1] : [0, 0];
+    const sp = TenisLive.liveSplit(m.sets, 'live');
+    done = sp.done; cur = sp.cur;
     if (view) tbTo = view.target;
-    else if (cur && ((Math.max(cur[0], cur[1]) >= 6 && Math.abs(cur[0] - cur[1]) >= 2) || Math.max(cur[0], cur[1]) === 7)) { done = (m.sets || []).slice(); cur = [0, 0]; }
     if (done.length >= bo - 1) tbTo = 10;
   }
   const l = MK.live(m.pred, done, cur, pts, m.server, m.g === 'W', m.best_of, tbTo, matchTb);
@@ -123,13 +123,12 @@ async function srcESPN(changed, token, signal) {
         if (st === 'in') consider(m, { status: 'live', sets: ss }, token, changed);
         else if (st === 'post') consider(m, { status: 'finished', sets: ss, winner: cs[0].winner ? (same ? 1 : 2) : cs[1].winner ? (same ? 2 : 1) : 0 }, token, changed); } } }))) }
 async function src365(changed, token, signal) { const d = await j('https://webws.365scores.com/web/games/current/?appTypeId=5&langId=1&timezoneName=Europe%2FPrague&userCountryId=1&sports=3', null, signal);
-  const PT = { 0: 0, 15: 1, 30: 2, 40: 3, 50: 4 };
   for (const g of d.games || []) { const h = g.homeCompetitor || {}, a = g.awayCompetitor || {}; const m = findPair('M', h.name, a.name) || findPair('W', h.name, a.name); if (!m) continue;
     const same = lastTok(h.name) === lastTok(m.players[0].name); const stg = {}; for (const s of g.stages || []) stg[s.name] = s;
     const sets = Object.keys(stg).filter(k => /^Set \d/.test(k)).map(k => [stg[k].homeCompetitorScore | 0, stg[k].awayCompetitorScore | 0]).filter(s => s[0] >= 0 && s[1] >= 0);
     const ss = same ? sets : sets.map(s => [s[1], s[0]]);
-    if (g.statusGroup === 3) { const gm = stg.Game || {}; let raw = [gm.homeCompetitorScore ?? 0, gm.awayCompetitorScore ?? 0]; let p = raw.map(x => PT[x | 0] ?? 0);
-      if (p.includes(4)) p = p[0] === 4 ? [4, 3] : [3, 4]; const sv = TenisLive.reportedServer(h.inPossession ? 1 : a.inPossession ? 2 : null, same);
+    if (g.statusGroup === 3) { const gm = stg.Game || {}; const raw = [gm.homeCompetitorScore ?? 0, gm.awayCompetitorScore ?? 0]; const p = TenisLive.map365Points(raw[0], raw[1]);
+      const sv = TenisLive.reportedServer(h.inPossession ? 1 : a.inPossession ? 2 : null, same);
       consider(m, { status: 'live', sets: ss, pts: same ? p : [p[1], p[0]], pts_raw: same ? raw : [raw[1], raw[0]], server: sv, srvTrust: sv ? 2 : 0, srv_src: sv ? '365' : null, src_pts: '365scores' }, token, changed); }
     else if (g.statusGroup === 4) consider(m, { status: 'finished', sets: ss, winner: h.isWinner ? (same ? 1 : 2) : a.isWinner ? (same ? 2 : 1) : 0 }, token, changed); } }
 const SS_CIRC = { ATP: 'ATP', WTA: 'WTA', Challenger: 'Challenger', 'WTA 125': 'WTA 125', 'ITF Men': 'ITF muži', 'ITF Women': 'ITF ženy' };
@@ -139,7 +138,6 @@ function sofaServer(e, same) {
   return TenisLive.reportedServer(e && e.firstToServe, same);
 }
 async function srcSofa(changed, token, signal) { const d = await j('https://api.sofascore1.com/api/v1/sport/tennis/events/live', null, signal);
-  const SPT = { '0': 0, '15': 1, '30': 2, '40': 3, 'A': 4 };
   for (const e of d.events || []) { const H = e.homeTeam || {}, A = e.awayTeam || {}; if (H.type !== 1 || A.type !== 1) continue;
     const circ = SS_CIRC[e.tournament?.category?.name]; if (!circ) continue; const g = H.gender === 'F' ? 'W' : 'M';
     let m = findPair(g, H.name, A.name);
@@ -152,12 +150,10 @@ async function srcSofa(changed, token, signal) { const d = await j('https://api.
     if (H.ranking) m.players[same ? 0 : 1].ranking ??= H.ranking;
     if (A.ranking) m.players[same ? 1 : 0].ranking ??= A.ranking;
     if (m.pred == null || m.pred_low) { if (ensurePred(m)) changed.add(m.id); }
-    const hs = e.homeScore || {}, as = e.awayScore || {};
-    const sets = []; for (let i = 1; i <= 5; i++) if (hs['period' + i] !== undefined) sets.push([hs['period' + i] | 0, as['period' + i] | 0]);
+    const parsed = TenisLive.parseSofaScore(e.homeScore, e.awayScore, m.best_of);
+    const sets = parsed.sets;
     const ss = same ? sets : sets.map(s => [s[1], s[0]]); const st = e.status?.type;
-    if (st === 'inprogress') { let p = [SPT[hs.point] ?? (+hs.point || 0), SPT[as.point] ?? (+as.point || 0)];
-      const tb = sets.length && sets[sets.length - 1][0] === 6 && sets[sets.length - 1][1] === 6; if (tb) p = [+hs.point || 0, +as.point || 0];
-      const raw = [hs.point ?? 0, as.point ?? 0]; const pts = same ? p : [p[1], p[0]];
+    if (st === 'inprogress') { const p = parsed.pts, raw = parsed.pts_raw; const pts = same ? p : [p[1], p[0]];
       const sv = sofaServer(e, same);
       consider(m, { status: 'live', sets: ss, pts, pts_raw: same ? raw : [raw[1], raw[0]], server: sv, srvTrust: sv ? 1 : 0, srv_src: sv ? 'firstToServe' : null, src_pts: 'Sofascore' }, token, changed); }
     else if (st === 'finished') consider(m, { status: 'finished', sets: ss, winner: e.winnerCode ? (same ? e.winnerCode : 3 - e.winnerCode) : 0 }, token, changed); } }

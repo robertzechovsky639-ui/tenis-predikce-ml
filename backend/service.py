@@ -47,9 +47,8 @@ class Service:
             m.pop("pred_low", None); m.pop("pred_note", None)
         m["live"] = None
         if m["status"] == "live" and m["pred"] is not None:
-            done, cur = (m["sets"][:-1], m["sets"][-1]) if m["sets"] else ([], [0, 0])
-            if cur and (max(cur) >= 6 and abs(cur[0] - cur[1]) >= 2 or max(cur) == 7):
-                done, cur = m["sets"], [0, 0]
+            sp = SM.split_live(m["sets"], "live")
+            done, cur = sp["done"], sp["cur"]
             pts = tuple(m.get("pts") or (0, 0)) if cur != [0, 0] or m.get("pts") else (0, 0)
             lv = markov.live(m["pred"], [tuple(s) for s in done], tuple(cur), pts, m.get("server"), g == "W", m["best_of"])
             m["live"] = dict(match=round(lv["match"], 4), set=round(lv["set"], 4), hold_a=round(lv["hold_a"], 3),
@@ -118,9 +117,12 @@ class Service:
                     same = x["home"] == S.surname_key(m["players"][0]["name"])
                     pts = list(x["pts"] if same else x["pts"][::-1])
                     sets = x["sets"] if same else [s[::-1] for s in x["sets"]]
+                    sets, pts, closed = SM.close_finished_tb(sets, pts, m.get("best_of") or 3)
                     rel = SM.cmp_score(m["sets"], None, sets, pts)
                     if rel > 0 or rel == 0:
-                        m["pts"] = pts; m["pts_raw"] = x["pts_raw"] if same else x["pts_raw"][::-1]
+                        m["pts"] = pts
+                        raw = x["pts_raw"] if same else list(reversed(x["pts_raw"] or []))
+                        m["pts_raw"] = [0, 0] if closed else raw
                         m["server"] = x["server"] if same or x["server"] is None else 3 - x["server"]
                         m["srv_trust"] = 2
                         if rel > 0 and SM.norm_sets(sets) != SM.norm_sets(m["sets"]):
