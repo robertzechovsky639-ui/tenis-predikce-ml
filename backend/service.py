@@ -50,7 +50,8 @@ class Service:
             sp = SM.split_live(m["sets"], "live")
             done, cur = sp["done"], sp["cur"]
             pts = tuple(m.get("pts") or (0, 0)) if cur != [0, 0] or m.get("pts") else (0, 0)
-            lv = markov.live(m["pred"], [tuple(s) for s in done], tuple(cur), pts, m.get("server"), g == "W", m["best_of"])
+            mtb = SM.is_match_tb(m["sets"], pts, m.get("best_of") or 3)
+            lv = markov.live(m["pred"], [tuple(s) for s in done], tuple(cur), pts, m.get("server"), g == "W", m["best_of"], match_tb=mtb)
             m["live"] = dict(match=round(lv["match"], 4), set=round(lv["set"], 4), hold_a=round(lv["hold_a"], 3),
                              hold_b=round(lv["hold_b"], 3), serve_a=round(lv["pa"], 3), serve_b=round(lv["pb"], 3),
                              game=None if lv["game"] is None else round(lv["game"], 4),

@@ -220,6 +220,15 @@ def _tar(path, names):
             tar.add(payload, arcname=name)
 
 
+def test_known_result_keeps_a_later_rematch():
+    P = Predictor.__new__(Predictor)
+    P.matches = pd.DataFrame({"date": pd.to_datetime(["2026-10-01"]), "wid": ["M1"], "lid": ["M2"]})
+    day = pd.Timestamp("2026-10-01").toordinal()
+    assert Predictor.known_result(P, "M1", "M2", day)
+    assert Predictor.known_result(P, "M1", "M2", day + 1)
+    assert not Predictor.known_result(P, "M1", "M2", day + 3)
+
+
 def test_archive_and_choose(tmp_path):
     import sys
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
@@ -242,5 +251,9 @@ def test_archive_and_choose(tmp_path):
     assert fetch_release.csv_ok(csv)
     csv.write_text("date\n")
     assert not fetch_release.csv_ok(csv)
+    csv.write_text("fs_id,date,g\n1,2024-01-01,M\n2,2024-01")
+    assert not fetch_release.csv_ok(csv)
     assert fetch_release.published_state_ok({"matches": [], "ids": []})
+    import ingest
+    assert ingest.fs_id_set(["a", "", None, float("nan"), "nan"]) == {"a"}
     assert not fetch_release.published_state_ok({"matches": [], "ids": "x"})

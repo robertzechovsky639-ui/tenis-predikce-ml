@@ -129,6 +129,23 @@ def close_finished_tb(sets, pts, best_of=3):
     return s, [x, y], False
 
 
+def is_match_tb(sets, pts, best_of=3):
+    """Rozhodující tiebreak místo setu: sety rozdělené a body už nejsou gem (víc než 4)."""
+    s = [list(x) for x in norm_sets(sets)]
+    if not pts:
+        return False
+    try:
+        x, y = int(pts[0]), int(pts[1])
+    except (TypeError, ValueError, IndexError):
+        return False
+    played = s[:-1] if s and s[-1] == [0, 0] else s
+    if not played or any(not finished_set(g) for g in played):
+        return False
+    a = sum(g[0] > g[1] for g in played)
+    b = sum(g[1] > g[0] for g in played)
+    return a == b and a > 0 and a * 2 + 1 == (best_of or 3) and max(x, y) > 4
+
+
 def is_deuce_reset(old_pts, new_pts):
     if not old_pts or not new_pts:
         return False
@@ -150,7 +167,44 @@ def only_opened_set(prev, nxt):
     return A == B[:-1]
 
 
+def match_winner(sets, best_of=3):
+    """Na dva (u pěti setů tři) dohrané sety je zápas rozhodnutý, i když zdroj ještě hlásí live."""
+    s = [list(x) for x in norm_sets(sets)]
+    played = s[:-1] if s and s[-1] == [0, 0] else s
+    if not played or any(not finished_set(g) for g in played):
+        return 0
+    a = sum(g[0] > g[1] for g in played)
+    b = sum(g[1] > g[0] for g in played)
+    need = ((best_of or 3) + 1) // 2
+    if a >= need:
+        return 1
+    if b >= need:
+        return 2
+    return 0
+
+
+def seal_match(row, best_of=3):
+    if not row or row.get("status") == "finished":
+        return row
+    w = match_winner(row.get("sets"), best_of or row.get("best_of") or 3)
+    if not w:
+        return row
+    row["status"] = "finished"
+    row["winner"] = row.get("winner") or w
+    row["sets"] = drop_open(row.get("sets"))
+    row["pts"] = None
+    row["pts_raw"] = None
+    row["server"] = None
+    row["srv_trust"] = 0
+    return row
+
+
 def keep_score(prev, new):
+    bo = (new or {}).get("best_of") or (prev or {}).get("best_of") or 3
+    return seal_match(_keep_score(prev, new), bo)
+
+
+def _keep_score(prev, new):
     """Nový snímek (pozdější dotaz) nesmí vrátit skóre ani znovu otevřít dohraný zápas.
     Návrat z výhody na shodu (40:40) je platný nový stav. Predikci nemění. Vrací new."""
     if new.get("status") != "finished":
@@ -175,6 +229,7 @@ def keep_score(prev, new):
             new["pts_raw"] = prev.get("pts_raw")
             new["server"] = prev.get("server")
             new["srv_trust"] = prev.get("srv_trust")
+            new["winner"] = prev.get("winner") or 0
             new["status"] = "live"
             return new
         new["sets"] = drop_open(new.get("sets") if rel_fin > 0 else prev.get("sets"))
@@ -204,6 +259,10 @@ def keep_score(prev, new):
         if prev.get("status") == "live":
             new["status"] = "live"
         return new
+    if list(new.get("pts") or []) != list(prev.get("pts") or []):
+        # Stejný postup bodů (40:A i A:40) nesmí otočit stranu. Prohlížeč body při rel == 0 taky nechá.
+        new["pts"] = prev.get("pts")
+        new["pts_raw"] = prev.get("pts_raw")
     if new.get("status") == "finished":
         return new
     if prev.get("status") == "live" and new.get("status") == "upcoming":

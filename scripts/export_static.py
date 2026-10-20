@@ -26,7 +26,7 @@ def incremental(svc):
     except Exception as e:
         print("flashscore výsledky nedostupné:", e)
     try:
-        rows = online.collect_matches(sources, today=datetime.date.today())
+        rows = online.collect_matches(sources, today=datetime.datetime.now(ingest.S.TZ).date())
         n, _ = online.apply_safe(svc.P, rows)
     except Exception as e:
         print("průběžné učení selhalo:", e)

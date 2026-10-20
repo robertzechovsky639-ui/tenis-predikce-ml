@@ -95,6 +95,38 @@ def test_tiebreak_set_then_zero_advances_and_stale_does_not():
     assert stuck["set"] == 0
 
 
+def test_rejected_finish_clears_winner_and_advantage_does_not_flip():
+    prev = _m([[6, 4], [6, 5]], [1, 0], server=1, trust=1)
+    bad = _m([[6, 4], [6, 4]], None, status="finished")
+    bad["winner"] = 1
+    SM.keep_score(prev, bad)
+    assert bad["status"] == "live" and bad["sets"] == [[6, 4], [6, 5]] and not bad["winner"]
+    adv = _m([[1, 1]], [4, 3], server=1, trust=2, src="365scores")
+    flip = _m([[1, 1]], [3, 4], server=2, trust=1, src="Sofascore")
+    SM.keep_score(adv, flip)
+    assert flip["pts"] == [4, 3] and flip["server"] == 1
+
+
+def test_two_sets_finish_best_of_three_but_not_five():
+    live = _m([[4, 6], [4, 6]], [0, 0], server=1, trust=1, src="Sofascore")
+    live["best_of"] = 3
+    SM.keep_score(None, live)
+    assert live["status"] == "finished" and live["winner"] == 2 and live["pts"] is None
+    again = _m([[4, 6], [3, 6]], [1, 0], status="live")
+    SM.keep_score(live, again)
+    assert again["status"] == "finished" and again["sets"] == [[4, 6], [4, 6]]
+    slam = _m([[6, 4], [6, 3], [0, 0]], [0, 0])
+    slam["best_of"] = 5
+    SM.keep_score(None, slam)
+    assert slam["status"] == "live" and slam["sets"] == [[6, 4], [6, 3], [0, 0]]
+
+
+def test_match_tiebreak_flag_and_set_order_independent_shape():
+    assert SM.is_match_tb([[6, 4], [4, 6]], [5, 4], 3)
+    assert not SM.is_match_tb([[6, 4], [3, 2]], [1, 0], 3)
+    assert not SM.is_match_tb([[6, 6]], [5, 4], 3)
+
+
 def test_finished_tiebreak_points_close_the_set_immediately():
     sets, pts, closed = SM.close_finished_tb([[6, 3], [6, 6]], [7, 5], 3)
     assert closed and sets == [[6, 3], [7, 6]] and pts == [0, 0]
@@ -110,10 +142,11 @@ def test_finished_tiebreak_points_close_the_set_immediately():
     nxt = _m([[6, 3], [6, 6]], [7, 5], server=1, trust=1, src="365scores")
     nxt["best_of"] = 3
     SM.keep_score(prev, nxt)
-    assert nxt["sets"] == [[6, 3], [7, 6]] and nxt["pts"] == [0, 0] and nxt["pts_raw"] == [0, 0]
+    assert nxt["status"] == "finished" and nxt["winner"] == 1
+    assert nxt["sets"] == [[6, 3], [7, 6]] and nxt["pts"] is None and nxt["pts_raw"] is None
     stale = _m([[6, 3], [6, 6]], [6, 6], server=2, trust=1)
     SM.keep_score(nxt, stale)
-    assert stale["sets"] == [[6, 3], [7, 6]] and stale["pts"] == [0, 0]
+    assert stale["status"] == "finished" and stale["sets"] == [[6, 3], [7, 6]] and stale["pts"] is None
 
 
 def test_map_point_keeps_tiebreak_counts():

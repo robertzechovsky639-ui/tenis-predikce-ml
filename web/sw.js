@@ -1,4 +1,4 @@
-const C='tenis-v8',A=['./','style.css','live.js','static.js','app.js','poll-worker.js','manifest.json','icon.svg'];
+const C='tenis-v9',A=['./','style.css','live.js','static.js','app.js','poll-worker.js','manifest.json','icon.svg'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.addAll(A)))});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x))))));
 self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(u.origin!==location.origin||u.pathname.includes('/api/')||u.pathname.includes('/data/'))return;
