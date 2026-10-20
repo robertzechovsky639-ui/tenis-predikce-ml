@@ -79,7 +79,7 @@ Lokálně trvale: `setsid nohup ./run_server.sh &` (automatický restart).
   Markovovým modelem v JS (`web/static.js`), překreslují se jen změněné karty, poslední data se drží v localStorage (okamžité první vykreslení).
   Živé kurzy (Flashscore odds feed) postupně ~1 zápas / 0,7 s a při otevření detailu.
 - **Předzápasové predikce, detaily, rozpis** generuje workflow `.github/workflows/pages.yml` (cron každých 10 min (měkký limit Pages ~10 nasazení/h); když GitHub cron nespouští (stává se u nových repozitářů), job `keepalive` spustí export znovu po 8 min. Navíc telefon sám doplňuje rozpis ATP/WTA/Challenger z 365scores s predikcí logistickou regresí –
-  čerstvost tedy nezávisí jen na Actions; + ručně a při push). Model se bere z release `model` (`model.tar.gz`), nepřetrénovává se.
+  čerstvost tedy nezávisí jen na Actions; + ručně a při push). Model se bere z release `model` (`model.tar.gz`). Když denní běh release zrovna maže a nahrává znovu, export sáhne po poslední celé záloze. Stromy se v tomhle běhu nepřetrénovávají.
 - Vlastní predikce (Predikce, Chat) v prohlížeči používá logistickou regresi (LightGBM jen pro zápasy z exportu); H2H tam není.
 - Flashscore rozpis/skóre (Challenger, ITF) prohlížeč číst nemůže (CORS preflight), takže zápasy, které nemá ani ESPN ani 365scores,
   se aktualizují jen s během workflow.
@@ -87,9 +87,8 @@ Lokálně trvale: `setsid nohup ./run_server.sh &` (automatický restart).
   `tar czf model.tar.gz -C data/model gbm.txt logreg.pkl state.pkl matches.pkl && gh release upload model model.tar.gz --clobber`.
 
 ## Průběžné učení (i když je aplikace zavřená)
-- **Každý export (≈ 10 min):** dohrané zápasy z Flashscore (−3..0 dní, všechny úrovně vč. ITF) + `live_results.csv` se započtou do
-  Elo / Elo na povrchu / formy / H2H (`backend/ingest.py`, `Predictor.apply_result`) – bez přetrénování.
-- **Denně 02:30 UTC (`learn.yml`):** čerstvé TennisMyLife CSV + ingest výsledků (kumulativně v release jako `live_results.csv`),
-  přepočet všech příznaků od 1968, kandidát natrénovaný do začátku holdoutu (posledních 8 týdnů). Brána: kandidát musí porazit Elo
-  na holdoutu o ≥ 0,003 log loss a nesmí být o víc než 0,01 horší než minule publikovaný kandidát. Pak refit na všech datech a nahrání
-  `model.tar.gz` do release `model`; jinak zůstává starý model (stav Elo/formy se aktualizuje vždy). Historie: `retrain_history.json`, záložka Model.
+Výsledek zápasu se do predikcí dalších zápasů těch hráčů dostane s dalším během Pages, tedy zhruba do 10–20 minut (cron `*/10`, a když GitHub cron vynechá, job `keepalive` ho po 8 minutách spustí znovu). Samotné Pages nasazení se nepřidává — pořád nejvýš jedno za ~10 minut. Otevřená aplikace si statická data bere při svém obnovení.
+
+- **Každý export:** z vydaného `state.pkl` se znovu spočítá Elo, Elo na povrchu, forma (posledních 10), únava, neaktivita a H2H. Seznam dohraných zápasů je malé `state.json` na Pages (`dist/data/state.json`) plus kopie v cache Actions. K tomu se přidá Flashscore (−3..0 dní) a denní `live_results.csv`. Stejné id se vezme jen jednou (surové id Flashscore, jinak `espn:` + id). Drží se posledních 21 dní, ať se po výpadku denního běhu zápas neztratí a zároveň se znovu neaplikuje něco, co už `known_result` nepozná. Hodnocení samotné se neukládá — každý běh ho spočítá znovu, takže se zápas nezapočte dvakrát. Release `model` export nenahrává.
+- **Stromy LightGBM mezi dny zůstávají.** Dotrénování pár stromů po každém zápase se měřilo stejným chronologickým protokolem jako trénink (skóre bloku dřív, než do něj model smí). Na zrcadle dat, 153 987 zápasů 2024+: zmrazený model 70,42 % / log loss 0,5606 / Brier 0,1908. Brána (log loss aspoň o 0,001 lepší a přesnost nesmí klesnout) nepřijala ani jeden ze 77 bloků, čísla stejná. Bez brány, vždy 3 stromy navíc: 70,44 % / 0,5606 / 0,1908. Log loss se nezlepšil, proto se stromy mezi dny nemění.
+- **Denně 02:30 UTC (`learn.yml`):** čerstvé TennisMyLife CSV + ingest výsledků, přepočet všech příznaků od 1968, kandidát natrénovaný do začátku holdoutu (posledních 8 týdnů). Brána: kandidát musí porazit Elo na holdoutu o ≥ 0,003 log loss a nesmí být o víc než 0,01 horší než minule publikovaný kandidát. Pak refit na všech datech a nahrání `model.tar.gz`; jinak zůstává starý model (stav Elo/formy se aktualizuje vždy). Publikovaný model na testu 2024–2026 (161 106 zápasů): 70,28 % / log loss 0,5633 / Brier 0,1918, Elo baseline log loss 0,5773. Historie: `retrain_history.json`, záložka Model.

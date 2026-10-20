@@ -1,0 +1,34 @@
+{
+ "frozen": {
+  "accuracy": 0.7042,
+  "log_loss": 0.5606,
+  "brier": 0.1908,
+  "n": 153987
+ },
+ "gated": {
+  "accuracy": 0.7042,
+  "log_loss": 0.5606,
+  "brier": 0.1908,
+  "n": 153987,
+  "accepted": 0,
+  "tried": 77,
+  "blocks": 77
+ },
+ "ungated": {
+  "accuracy": 0.7044,
+  "log_loss": 0.5606,
+  "brier": 0.1908,
+  "n": 153987,
+  "accepted": 77,
+  "tried": 77,
+  "blocks": 77
+ },
+ "block": 2000,
+ "holdout": 500,
+ "min_train": 500,
+ "rounds": 3,
+ "lr": 0.02,
+ "min_gain": 0.001,
+ "n": 153987,
+ "seconds": 111
+}

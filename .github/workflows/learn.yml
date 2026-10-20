@@ -32,6 +32,8 @@ jobs:
       - name: Ingest + přetrénování s bránou kvality
         working-directory: backend
         run: python retrain.py
+      # Jen tenhle denní běh nahrává release `model`. Export každých 10 min ho nesmí přepisovat:
+      # delete+reupload se trefuje do stahování a zápas se pak započte dvakrát, nebo vůbec.
       - name: Publikace (stav vždy, model jen když prošel bránou)
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |

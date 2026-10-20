@@ -7,3 +7,5 @@ data/model/gbm.txt
 *.log
 public_url.txt
 dist/
+data/online-cache/
+data/online/
