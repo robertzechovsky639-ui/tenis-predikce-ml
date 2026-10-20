@@ -11,6 +11,7 @@ permissions:
   pages: write
   id-token: write
 concurrency:
+  # Bez cancel-in-progress: dva exporty za sebou se nesmí přerušit, jinak se ztratí dohraný zápas.
   group: pages
   cancel-in-progress: false
 jobs:
@@ -22,15 +23,41 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.13", cache: pip }
       - run: pip install -r requirements.txt
-      - name: Model + průběžné výsledky z release "model"
+      - name: Obnovit poslední celý model a state.json
+        uses: actions/cache/restore@v4
+        with:
+          path: data/online-cache
+          key: model-last-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            model-last-
+      - name: Model z release, jinak záloha z cache
         env: { GH_TOKEN: "${{ github.token }}" }
-        run: |
-          gh release download model -p model.tar.gz -R "${{ github.repository }}"
-          tar xzf model.tar.gz -C data/model
-          mkdir -p data/raw && (gh release download model -p live_results.csv -D data/raw -R "${{ github.repository }}" || true)
+        run: python scripts/fetch_release.py
       - run: python scripts/export_static.py
       - uses: actions/upload-pages-artifact@v3
         with: { path: dist }
+      - name: Uložit zálohu modelu a state.json
+        id: save_cache
+        if: success()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: data/online-cache
+          key: model-last-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Smazat starší zálohy modelu
+        if: steps.save_cache.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: model-last-${{ github.run_id }}-${{ github.run_attempt }}
+          R: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh cache list -R "$R" --key model-last- --limit 100 --json id,key --jq '.[] | "\(.id)\t\(.key)"' |
+            while IFS="$(printf '\t')" read -r id key; do
+              [ "$key" = "$KEY" ] && continue
+              gh cache delete "$id" -R "$R" || true
+            done
   deploy:
     needs: build
     runs-on: ubuntu-latest

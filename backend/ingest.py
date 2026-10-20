@@ -1,5 +1,7 @@
-"""Nově dohrané zápasy z živých zdrojů (Flashscore −7..0 dní: všechny úrovně vč. ITF) -> data/raw/live_results.csv (kumulativně).
-Používá se (1) při každém exportu k průběžné aktualizaci Elo/formy bez přetrénování, (2) při denním přetrénování jako trénovací data."""
+"""Nově dohrané zápasy z Flashscore (všechny úrovně vč. ITF).
+
+Denní retrain je přes update_csv() zapisuje do data/raw/live_results.csv.
+Export CSV jen čte a seznam pro přepočet Elo ukládá do state.json, ne do release."""
 import datetime, pathlib, pandas as pd
 import sources as S, features as F
 
@@ -21,24 +23,27 @@ def fetch_finished(days=range(-7, 1)):
                              tourney_name=m["tournament"], winner_name=w["name"], loser_name=l["name"], winner_slug=w.get("slug", ""), loser_slug=l.get("slug", ""), score=sc))
     return pd.DataFrame(rows, columns=COLS)
 
+def merge_rows(extra):
+    old = pd.read_csv(CSV) if CSV.exists() else pd.DataFrame(columns=COLS)
+    parts = [old] if len(old) else []
+    if extra is not None and len(extra):
+        parts.append(extra)
+    allr = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=COLS)
+    if len(allr):
+        allr["fs_id"] = ["" if (x is None or x != x) else str(x) for x in allr["fs_id"]]
+        allr = allr.drop_duplicates("fs_id", keep="last").sort_values("date")
+        CSV.parent.mkdir(parents=True, exist_ok=True)
+        allr.to_csv(CSV, index=False)
+    print("live_results:", len(old), "->", len(allr))
+    return allr
+
 def update_csv():
-    new = fetch_finished(); old = pd.read_csv(CSV) if CSV.exists() else pd.DataFrame(columns=COLS)
-    allr = pd.concat([old, new], ignore_index=True).drop_duplicates("fs_id", keep="last").sort_values("date")
-    CSV.parent.mkdir(parents=True, exist_ok=True); allr.to_csv(CSV, index=False)
-    print("live_results:", len(old), "->", len(allr), "(+", len(allr) - len(old), ")"); return allr
+    return merge_rows(fetch_finished())
 
 def apply_to_state(P, rows):
-    """Průběžná aktualizace: započte zápasy, které ve stavu ještě nejsou (podle dvojice a data ±10 dní)."""
-    n = 0; seen = set(P.s.setdefault("fs_seen", set())); P.s["fs_seen"] = seen
-    for r in rows.itertuples(index=False):
-        if r.fs_id in seen: continue
-        w = P.find(r.g, str(r.winner_slug).replace("-", " ") or r.winner_name, r.winner_name) or P.find(r.g, None, r.winner_name)
-        l = P.find(r.g, str(r.loser_slug).replace("-", " ") or r.loser_name, r.loser_name) or P.find(r.g, None, r.loser_name)
-        day = datetime.date.fromisoformat(r.date).toordinal(); seen.add(r.fs_id)
-        if not (w and l) or day <= P.s["last"].get(w, 0) and day <= P.s["last"].get(l, 0) and P.known_result(w, l, day): continue
-        if P.known_result(w, l, day): continue
-        P.apply_result(w, l, r.surface, day); n += 1
-    P.ref_day = min(datetime.date.today().toordinal(), max(P.s["last"].values()) + 1)
+    """Započte nové zápasy do Elo, formy a H2H. Neznámého hráče nenechá ve fs_seen, ať se zkusí znovu."""
+    import online
+    n, _ = online.apply_new(P, rows)
     return n
 
 if __name__ == "__main__":

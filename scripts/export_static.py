@@ -6,18 +6,57 @@ os.environ["TENIS_NO_POLL"] = "1"
 from service import Service, F
 OUT = ROOT / "dist"
 
+def incremental(svc):
+    """Přepočte Elo/formu/H2H z vydaného stavu a seznamu zápasů. Stromy nemění.
+
+    Při chybě vrátí hodnocení zpět a state.json nenechá přepsat (druhá hodnota None).
+    """
+    import datetime
+    import ingest, online
+    sources = [online.read_state(F.ROOT / "data" / "online" / "state.published.json"),
+               online.read_state(F.ROOT / "data" / "online-cache" / "state.json")]
+    if ingest.CSV.exists():
+        try:
+            import pandas as pd
+            sources.append(pd.read_csv(ingest.CSV))
+        except Exception as e:
+            print("live_results.csv nečitelné:", e)
+    try:
+        sources.append(ingest.fetch_finished(range(-3, 1)))
+    except Exception as e:
+        print("flashscore výsledky nedostupné:", e)
+    try:
+        rows = online.collect_matches(sources, today=datetime.date.today())
+        n, _ = online.apply_safe(svc.P, rows)
+    except Exception as e:
+        print("průběžné učení selhalo:", e)
+        return 0, None
+    try:
+        online.write_state(F.ROOT / "data" / "online-cache" / "state.json", rows)
+    except Exception as e:
+        print("záloha state.json se neuložila:", e)
+    print("průběžně započteno:", n, "z", len(rows), "zápasů v okně")
+    return n, rows
+
+def publish_state(kept):
+    import online
+    dest = OUT / "data" / "state.json"
+    if kept is not None:
+        online.write_state(dest, kept)
+        return
+    prev = F.ROOT / "data" / "online-cache" / "state.json"
+    if prev.exists():
+        shutil.copyfile(prev, dest)
+
 def main():
     t0 = time.time(); svc = Service()
-    # průběžné učení: dohrané zápasy z posledních dnů -> Elo/forma/H2H ve stavu (bez přetrénování)
-    import ingest, pandas as pd
-    rows = ingest.fetch_finished(range(-3, 1))
-    if ingest.CSV.exists(): rows = pd.concat([pd.read_csv(ingest.CSV), rows]).drop_duplicates("fs_id", keep="last")
-    n_inc = ingest.apply_to_state(svc.P, rows.sort_values("date")); print("průběžně započteno:", n_inc, "zápasů z", len(rows))
+    n_inc, kept = incremental(svc)
     svc.poll_once(True); svc.opool.shutdown(wait=True)  # počkat na kurzy
     svc.opool = __import__("concurrent.futures").futures.ThreadPoolExecutor(1)
     svc.poll_once(True)
     if OUT.exists(): shutil.rmtree(OUT)
     shutil.copytree(ROOT / "web", OUT); (OUT / "data" / "m").mkdir(parents=True)
+    publish_state(kept)
     ids = {p for ms in svc.days.values() for m in ms for p in (m.get("pids") or []) if p}
     M = svc.P.matches; svc.P.matches = M[M.wid.isin(ids) & M.lid.isin(ids)]  # zrychlení H2H dotazů
     allm = []
@@ -28,7 +67,8 @@ def main():
             json.dump(det, open(OUT / "data" / "m" / f"{m['id']}.json", "w"), ensure_ascii=False, separators=(",", ":"))
     P = svc.P; s = P.s
     json.dump(dict(generated=time.time(), status=svc.status, matches=allm), open(OUT / "data" / "matches.json", "w"), ensure_ascii=False, separators=(",", ":"))
-    mj = json.load(open(F.ROOT / "data" / "model" / "metrics.json")); mj["incremental"] = dict(applied=n_inc, at=time.time())
+    mj = json.load(open(F.ROOT / "data" / "model" / "metrics.json"))
+    mj["incremental"] = dict(applied=n_inc, at=time.time())
     hp = F.ROOT / "data" / "model" / "retrain_history.json"; mj["history"] = json.load(open(hp)) if hp.exists() else []
     json.dump(mj, open(OUT / "data" / "model.json", "w"), ensure_ascii=False)
     json.dump(dict(features=F.FEATURES, mean=P.sc.mean_.tolist(), scale=P.sc.scale_.tolist(), coef=P.lr.coef_[0].tolist(),
