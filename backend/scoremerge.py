@@ -68,7 +68,7 @@ def cmp_score(a_sets, a_pts, b_sets, b_pts):
     """1 = b je před a, -1 = b je za a, 0 = stejný stav gemů a bodů.
 
     Delší seznam po dohraném setu (i když nový set je 0:0) je dopředu.
-    Kratší seznam je pozadu. Body, které by tím klesly, set 0:0 nepřepíšou.
+    Kratší seznam je pozadu. Nižší body samy o sobě nový set nezablokují.
     """
     A, B = norm_sets(a_sets), norm_sets(b_sets)
     for i in range(max(len(A), len(B))):
@@ -79,8 +79,9 @@ def cmp_score(a_sets, a_pts, b_sets, b_pts):
             prev = (B if y is not None else A)[i - 1] if i else None
             open_set = longer == [0, 0] and prev is not None and finished_set(prev)
             if open_set:
+                # Nový set 0:0 je dopředu hned. Kratší seznam je pozadu.
                 if x is None and y is not None:
-                    return -1 if point_rank(b_pts) < point_rank(a_pts) else 1
+                    return 1
                 return -1
             xx = x if x is not None else [0, 0]
             yy = y if y is not None else [0, 0]
@@ -106,6 +107,28 @@ def cmp_score(a_sets, a_pts, b_sets, b_pts):
     return 0
 
 
+def close_finished_tb(sets, pts, best_of=3):
+    """Tiebreak dohraný v bodech je set 7:6, i když zdroj ještě hlásí gemy 6:6."""
+    s = []
+    for row in sets or []:
+        try:
+            s.append([int(row[0]), int(row[1])])
+        except (TypeError, ValueError, IndexError):
+            continue
+    if not s or not pts or s[-1] != [6, 6]:
+        return s, list(pts) if pts else pts, False
+    try:
+        x, y = int(pts[0]), int(pts[1])
+    except (TypeError, ValueError, IndexError):
+        return s, pts, False
+    target = 10 if len(s) >= (best_of or 3) else 7
+    hi, lo = max(x, y), min(x, y)
+    if hi >= target and hi - lo >= 2:
+        s[-1] = [7, 6] if x > y else [6, 7]
+        return s, [0, 0], True
+    return s, [x, y], False
+
+
 def is_deuce_reset(old_pts, new_pts):
     if not old_pts or not new_pts:
         return False
@@ -117,9 +140,26 @@ def is_deuce_reset(old_pts, new_pts):
     return adv and c == 3 and d == 3
 
 
+def only_opened_set(prev, nxt):
+    """Jediná změna je přidané 0:0 po dohraném setu."""
+    A, B = norm_sets(prev), norm_sets(nxt)
+    if not A or len(B) != len(A) + 1:
+        return False
+    if B[-1] != [0, 0] or not finished_set(B[-2]):
+        return False
+    return A == B[:-1]
+
+
 def keep_score(prev, new):
     """Nový snímek (pozdější dotaz) nesmí vrátit skóre ani znovu otevřít dohraný zápas.
     Návrat z výhody na shodu (40:40) je platný nový stav. Predikci nemění. Vrací new."""
+    if new.get("status") != "finished":
+        bo = new.get("best_of") or (prev or {}).get("best_of") or 3
+        sets, pts, closed = close_finished_tb(new.get("sets"), new.get("pts"), bo)
+        if closed:
+            new["sets"] = sets
+            new["pts"] = pts
+            new["pts_raw"] = [0, 0]
     if not prev:
         return new
     if prev.get("status") == "finished" and new.get("status") != "finished":
@@ -145,6 +185,12 @@ def keep_score(prev, new):
         return new
     rel = cmp_score(prev.get("sets"), prev.get("pts"), new.get("sets"), new.get("pts"))
     if rel > 0:
+        # Nový set 0:0 jde hned. Body už rozehraného gemu a podávající se tím nesmažou.
+        if only_opened_set(prev.get("sets"), new.get("sets")) and point_rank(new.get("pts")) < point_rank(prev.get("pts")):
+            new["pts"] = prev.get("pts")
+            new["pts_raw"] = prev.get("pts_raw")
+            new["server"] = prev.get("server")
+            new["srv_trust"] = prev.get("srv_trust")
         return new
     same_src = not prev.get("src_pts") or not new.get("src_pts") or prev.get("src_pts") == new.get("src_pts")
     if rel < 0 and is_deuce_reset(prev.get("pts"), new.get("pts")) and same_src:

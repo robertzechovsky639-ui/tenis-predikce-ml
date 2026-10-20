@@ -120,7 +120,7 @@ function bind(){document.querySelectorAll('.days button').forEach(b=>b.onclick=(
 
 // ---- detail ----
 async function openDetail(id,refresh){const d=await api('/api/match/'+encodeURIComponent(id));S.detail=d;if(!refresh)S.tab='prehled';drawDetail();if(!refresh)$('#detail').scrollTop=0}
-function drawDetail(){const d=S.detail,el=$('#detail');el.classList.remove('hidden');const [A,B]=d.players;
+function drawDetail(){const d=S.detail;if(d.status==='live'&&d.pred!=null&&typeof liveCalc==='function')liveCalc(d);const el=$('#detail');el.classList.remove('hidden');const [A,B]=d.players;
  const sp=TenisLive.liveSplit(d.sets,d.status),sa=sp.done.filter(s=>s[0]>s[1]).length,sb=sp.done.filter(s=>s[1]>s[0]).length;
  const setNo=d.status==='live'?(sp.n||1):0,gamesNow=d.status==='live'&&sp.cur?sp.cur.join('–'):'';const [tg,cl]=tagOf(d.circuit);const c=d.cards||[];
  const pp=(p,cd)=>`<div class="pp"><div class="av">${initials(p.name)}</div><b>${esc(shortN(p))}</b><small>${cd&&cd.rank?'#'+cd.rank:esc(p.country||'')}</small></div>`;

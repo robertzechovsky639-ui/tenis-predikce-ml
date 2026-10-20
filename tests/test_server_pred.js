@@ -110,3 +110,32 @@ assert.ok(Math.abs(fw.live.set - fw3.live.set) < 1e-12 && Math.abs(fw.live.match
 const seven = tbMatch(1, [[7, 6]], [0, 0]); liveCalc(seven);
 assert.strictEqual(TL.liveSplit([[7, 6]], 'live').n, 2);
 assert.ok(seven.live.set > 0.05 && seven.live.set < 0.95, '7:6 je dohraný set, predikce patří dalšímu');
+
+// Konec tiebreaku, bod i gem musí živou predikci přepočítat. Samotné 0:0 po 6:7 je stejné číslo jako sbalený set.
+const duringTb = tbMatch(1, [[6, 3], [6, 6]], [2, 4]);
+liveCalc(duringTb);
+assert.strictEqual(duringTb.live.game, null);
+const tbMatchP = duringTb.live.match, tbSetP = duringTb.live.set;
+const step = tbMatch(1, [[6, 3], [6, 6]], [2, 4]);
+step._accAt = 1; step._lk = 'stale';
+assert.strictEqual(TL.applyLive(step, { status: 'live', sets: [[6, 3], [6, 6]], pts: [5, 7], pts_raw: [5, 7], server: 1, srvTrust: 1, src_pts: '365scores' }, { src: 's365', t0: 5 }, () => true), true);
+assert.strictEqual(step._lk, '');
+assert.strictEqual(JSON.stringify(step.sets), JSON.stringify([[6, 3], [6, 7]]));
+assert.strictEqual(JSON.stringify(step.pts), JSON.stringify([0, 0]));
+liveCalc(step);
+assert.ok(step.live.game != null, 'po konci tiebreaku se šance gemu znovu počítá');
+assert.ok(step.live.match > 0.05 && step.live.match < 0.95, '1:1 po 6:7 zápas ještě běží');
+assert.ok(Math.abs(step.live.match - tbMatchP) > 1e-6, 'konec tiebreaku musí změnit predikci zápasu');
+assert.ok(Math.abs(step.live.set - tbSetP) > 1e-6, 'konec tiebreaku musí změnit predikci setu');
+assert.strictEqual(TL.liveSplit(step.sets, 'live').n, 3);
+const game0 = step.live.game, match0 = step.live.match;
+assert.strictEqual(TL.applyLive(step, { status: 'live', sets: step.sets.map(s => s.slice()), pts: [1, 0], pts_raw: [15, 0], server: 1, srvTrust: 1, src_pts: '365scores' }, { src: 's365', t0: 6 }, () => true), true);
+liveCalc(step);
+assert.ok(Math.abs(step.live.game - game0) > 1e-6, 'bod v gemu musí změnit šanci gemu');
+assert.ok(Math.abs(step.live.match - match0) > 1e-6, 'bod v gemu musí změnit predikci zápasu');
+const matchPoint = step.live.match;
+assert.strictEqual(TL.applyLive(step, { status: 'live', sets: [[6, 3], [6, 7], [0, 1]], pts: [0, 0], pts_raw: [0, 0], server: 2, srvTrust: 2, src_pts: '365scores' }, { src: 's365', t0: 7 }, () => true), true);
+liveCalc(step);
+assert.strictEqual(TL.liveSplit(step.sets, 'live').cur.join(':'), '0:1');
+assert.ok(Math.abs(step.live.match - matchPoint) > 1e-6, 'gem 0:1 musí změnit predikci zápasu');
+assert.ok(step.live.game != null && Math.abs(step.live.game - game0) > 1e-6);

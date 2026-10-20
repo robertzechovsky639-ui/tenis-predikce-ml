@@ -117,9 +117,12 @@ class Service:
                     same = x["home"] == S.surname_key(m["players"][0]["name"])
                     pts = list(x["pts"] if same else x["pts"][::-1])
                     sets = x["sets"] if same else [s[::-1] for s in x["sets"]]
+                    sets, pts, closed = SM.close_finished_tb(sets, pts, m.get("best_of") or 3)
                     rel = SM.cmp_score(m["sets"], None, sets, pts)
                     if rel > 0 or rel == 0:
-                        m["pts"] = pts; m["pts_raw"] = x["pts_raw"] if same else x["pts_raw"][::-1]
+                        m["pts"] = pts
+                        raw = x["pts_raw"] if same else list(reversed(x["pts_raw"] or []))
+                        m["pts_raw"] = [0, 0] if closed else raw
                         m["server"] = x["server"] if same or x["server"] is None else 3 - x["server"]
                         m["srv_trust"] = 2
                         if rel > 0 and SM.norm_sets(sets) != SM.norm_sets(m["sets"]):
