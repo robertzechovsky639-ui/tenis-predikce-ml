@@ -1,0 +1,6 @@
+.venv
+data/raw
+data/model/*.pkl
+data/model/gbm.txt
+*.log
+screenshots
