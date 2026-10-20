@@ -68,3 +68,16 @@ zvol placený plán se ≥ 2 GB, nebo natrénuj lokálně a model nahraj (Git LF
 fungují i za reverzní proxy.
 
 Lokálně trvale: `setsid nohup ./run_server.sh &` (automatický restart).
+
+## Veřejná verze na GitHub Pages (bez serveru)
+**https://robertzechovsky639-ui.github.io/tenis-predikce-ml/** – na iPhonu Safari → Sdílet → Přidat na plochu.
+
+- **Živé skóre přímo v prohlížeči každé 4 s** (ESPN scoreboard + 365scores, obojí povoluje CORS); živá pravděpodobnost
+  se počítá Markovovým modelem v JS (`web/static.js`). Živé kurzy (Flashscore odds feed) každých 30 s a při otevření detailu.
+- **Předzápasové predikce, detaily, rozpis** generuje workflow `.github/workflows/pages.yml` (cron každých 5 min – GitHub
+  ho v praxi spouští se zpožděním 5–20 min; + ručně a při push). Model se bere z release `model` (`model.tar.gz`), nepřetrénovává se.
+- Vlastní predikce (Predikce, Chat) v prohlížeči používá logistickou regresi (LightGBM jen pro zápasy z exportu); H2H tam není.
+- Flashscore rozpis/skóre (Challenger, ITF) prohlížeč číst nemůže (CORS preflight), takže zápasy, které nemá ani ESPN ani 365scores,
+  se aktualizují jen s během workflow.
+- Nový model: lokálně `train.py` + `export_matches.py`, pak
+  `tar czf model.tar.gz -C data/model gbm.txt logreg.pkl state.pkl matches.pkl && gh release upload model model.tar.gz --clobber`.

@@ -1,0 +1,44 @@
+"""Statický export pro GitHub Pages: předzápasové predikce, detaily zápasů, model, hráči (pro vlastní predikci v prohlížeči).
+Živé skóre si pak prohlížeč stahuje sám (ESPN / 365scores / Flashscore, CORS) každé ~4 s."""
+import json, math, os, pathlib, shutil, sys, time
+ROOT = pathlib.Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT / "backend"))
+os.environ["TENIS_NO_POLL"] = "1"
+from service import Service, F
+OUT = ROOT / "dist"
+
+def main():
+    t0 = time.time(); svc = Service()
+    svc.poll_once(True); svc.opool.shutdown(wait=True)  # počkat na kurzy
+    svc.opool = __import__("concurrent.futures").futures.ThreadPoolExecutor(1)
+    svc.poll_once(True)
+    if OUT.exists(): shutil.rmtree(OUT)
+    shutil.copytree(ROOT / "web", OUT); (OUT / "data" / "m").mkdir(parents=True)
+    ids = {p for ms in svc.days.values() for m in ms for p in (m.get("pids") or []) if p}
+    M = svc.P.matches; svc.P.matches = M[M.wid.isin(ids) & M.lid.isin(ids)]  # zrychlení H2H dotazů
+    allm = []
+    for d, ms in svc.days.items():
+        for m in ms:
+            allm.append({k: v for k, v in m.items() if k != "_sig"})
+            det = svc.detail(m["id"])
+            json.dump(det, open(OUT / "data" / "m" / f"{m['id']}.json", "w"), ensure_ascii=False, separators=(",", ":"))
+    P = svc.P; s = P.s
+    json.dump(dict(generated=time.time(), status=svc.status, matches=allm), open(OUT / "data" / "matches.json", "w"), ensure_ascii=False, separators=(",", ":"))
+    shutil.copy(F.ROOT / "data" / "model" / "metrics.json", OUT / "data" / "model.json")
+    json.dump(dict(features=F.FEATURES, mean=P.sc.mean_.tolist(), scale=P.sc.scale_.tolist(), coef=P.lr.coef_[0].tolist(),
+                   intercept=float(P.lr.intercept_[0]), ref_day=P.ref_day), open(OUT / "data" / "lr.json", "w"))
+    # hráči aktivní od 2022 (pro vyhledávání a vlastní predikci v prohlížeči)
+    import datetime
+    cut = datetime.date(2022, 1, 1).toordinal(); pl = []
+    for pid, last in s["last"].items():
+        if last < cut: continue
+        r = s["recent"].get(pid, []); rs = [x for dd, x in s["resid"].get(pid, []) if P.ref_day - dd <= 60]
+        pl.append([pid, s["name"][pid], round(s["elo"].get(pid, 1500)), [round(s["selo"].get((pid, x), 1500)) for x in ("Hard", "Clay", "Grass")],
+                   int(s["rank"][pid]) if pid in s["rank"] else None, round(sum(r) / len(r), 2) if r else 0.5, s["n"].get(pid, 0),
+                   min(P.ref_day - last, 365), sum(1 for dd in s["dates"].get(pid, []) if P.ref_day - dd <= 14),
+                   round(sum(rs) / len(rs), 4) if rs else 0, round(s["age"].get(pid) or 25, 1)])
+    json.dump(pl, open(OUT / "data" / "players.json", "w"), ensure_ascii=False, separators=(",", ":"))
+    (OUT / ".nojekyll").write_text("")
+    print("export", len(allm), "zápasů,", len(pl), "hráčů,", round(time.time() - t0), "s")
+
+if __name__ == "__main__":
+    main()

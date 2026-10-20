@@ -1,6 +1,6 @@
-fastapi>=0.110
-uvicorn>=0.29
-lightgbm>=4.0
-scikit-learn>=1.4
-pandas>=2.0
-numpy>=1.26
+fastapi==0.151.0
+uvicorn==0.54.0
+lightgbm==4.7.0
+scikit-learn==1.9.1
+pandas==3.0.6
+numpy==2.5.4

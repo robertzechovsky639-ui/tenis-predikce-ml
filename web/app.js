@@ -7,15 +7,16 @@ const initials=n=>(n||'?').replace(/[^\p{L} ]/gu,'').split(' ').filter(Boolean).
 const shortN=p=>{const n=p.name||'';if(/\s\w\.$/.test(n))return n; const t=n.split(' ');return t.length>1?t[0][0]+'. '+t.slice(1).join(' '):n};
 const surfCz={Hard:'Tvrdý',Clay:'Antuka',Grass:'Tráva',Carpet:'Koberec'};
 const tagOf=c=>c==='ATP'?['ATP','atp']:c==='WTA'?['WTA','wta']:c==='Challenger'?['CH','']:c==='WTA 125'?['125','wta']:c.startsWith('ITF')?['ITF','itf']:[c,''];
-async function api(u){const r=await fetch(u);if(!r.ok)throw new Error(r.status);return r.json()}
+async function api(u){if(STATIC)return staticApi(u);const r=await fetch(u);if(!r.ok)throw new Error(r.status);return r.json()}
 function saveFav(){localStorage.fav=JSON.stringify([...S.fav])}
 
-async function load(day){const d=await api('/api/matches?day='+day);S.data[day]=d.matches;S.status=d.status;render();upd()}
-function upd(){const s=S.status||{};const l=S.lat.length?` · zpoždění push ${Math.round(S.lat.at(-1))} ms`:'';
+let _st0=null;async function load(day){if(STATIC){_st0=_st0||loadStatic();await _st0}const d=await api('/api/matches?day='+day);S.data[day]=d.matches;S.status=d.status;render();upd()}
+function upd(){const s=S.status||{};if(STATIC){const lv=ST.all.filter(m=>m.status==='live').length;s.live=lv;$('#upd').innerHTML=`<span class="g"></span>${lv?'Živě':'Bez živých zápasů'} · skóre ${ST.lastLive?ST.lastLive.toLocaleTimeString('cs-CZ'):'–'} (${ST.liveMs??'–'} ms) · predikce ${ST.generated?new Date(ST.generated*1000).toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit'}):'–'}`;return}
+ const l=S.lat.length?` · zpoždění push ${Math.round(S.lat.at(-1))} ms`:'';
  $('#upd').innerHTML=(s.demo?'<span class="tag demo">DEMO</span> ':'<span class="g"></span>')+`${s.live?'Živě':'Bez živých zápasů'} · aktualizováno ${s.last_poll?new Date(s.last_poll).toLocaleTimeString('cs-CZ'):'–'}${l}`}
 
 // ---- SSE: okamžité aktualizace ----
-function stream(){const es=new EventSource('/api/stream');
+function stream(){if(STATIC)return staticLoop();const es=new EventSource('/api/stream');
  es.onmessage=e=>{const m=JSON.parse(e.data);if(m.status)S.status=m.status;
   if(m.type==='update'){S.lat.push(Date.now()-m.t_push*1000);for(const x of m.matches){const arr=S.data[x.day];if(!arr)continue;const i=arr.findIndex(y=>y.id===x.id);if(i>=0)arr[i]=x;else arr.push(x)}
    api('/api/status').then(s=>{S.status=s;upd()});if(S.view==='zapasy'||S.view==='oblibene')render();
@@ -64,7 +65,7 @@ async function modelView(){const m=await api('/api/model');const r=(k,n)=>`<tr><
  <p class="note">Testovaných zápasů: ${m.test_rows.toLocaleString('cs-CZ')} · trénink: ${m.train_rows.toLocaleString('cs-CZ')} · data ${m.data_from} až ${m.data_to} (${m.n_matches.toLocaleString('cs-CZ')} zápasů, Jeff Sackmann) · iterací ${m.gbm_iterations} · natrénováno ${m.trained_at}</p></div>
  <div class="box"><h3>PODLE OKRUHU (LightGBM vs Elo)</h3><table><tr><th></th><th>N</th><th>LGBM</th><th>ELO</th></tr>${Object.entries(m.by_circuit).map(([c,v])=>`<tr><td>${c}</td><td>${v.lightgbm.n}</td><td>${(v.lightgbm.accuracy*100).toFixed(1)} %</td><td>${(v.elo.accuracy*100).toFixed(1)} %</td></tr>`).join('')}</table></div>
  <div class="box"><h3>DŮLEŽITOST PŘÍZNAKŮ (gain)</h3>${Object.entries(m.importance).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="bar" style="margin:5px 0"><span style="width:90px">${k}</span><div class="t" style="background:#2a2060"><i style="width:${v*100}%"></i></div><span>${(v*100).toFixed(1)} %</span></div>`).join('')}</div>
- <div class="box"><h3>ŽIVÁ DATA</h3><p class="note">Poslední dotaz: ${S.status.last_poll||'–'} · stažení zdrojů ${S.status.source_ms} ms · celý cyklus ${S.status.poll_ms} ms · interval ${S.status.live?'3 s (živé zápasy)':'30 s'} · zpoždění SSE push→prohlížeč ${S.lat.length?Math.round(S.lat.at(-1))+' ms':'–'}</p></div>`}
+ ${STATIC?`<div class="box"><h3>ŽIVÁ DATA (GitHub Pages)</h3><p class="note">Skóre přímo z prohlížeče každé 4 s (ESPN + 365scores), Challenger/ITF bez bodů z 365scores se aktualizují jen z GitHub Actions, živé kurzy každých 30 s. Poslední načtení ${ST.lastLive?ST.lastLive.toLocaleTimeString('cs-CZ'):'–'} za ${ST.liveMs} ms. Předzápasové predikce: GitHub Actions, vygenerováno ${new Date(ST.generated*1000).toLocaleString('cs-CZ')}.</p></div>`:''}<div class="box" style="${STATIC?'display:none':''}"><h3>ŽIVÁ DATA</h3><p class="note">Poslední dotaz: ${S.status.last_poll||'–'} · stažení zdrojů ${S.status.source_ms} ms · celý cyklus ${S.status.poll_ms} ms · interval ${S.status.live?'3 s (živé zápasy)':'30 s'} · zpoždění SSE push→prohlížeč ${S.lat.length?Math.round(S.lat.at(-1))+' ms':'–'}</p></div>`}
 function chatView(){return `<h1>CHAT</h1><div id="msgs"><div class="msg">Ahoj! Napiš dvojici hráčů, např. „Sinner vs Alcaraz antuka“. Odpovídám z modelu (lokální asistent, bez AI).</div></div>
  <div style="padding:12px;display:flex;gap:8px"><input class="q" id="cq" placeholder="Zpráva…"><button class="ob" id="cs">➤</button></div>`}
 function playersView(){return `<h1>HRÁČI</h1><div style="padding:0 12px"><input class="q" id="ps" placeholder="Hledat hráče…"></div><div id="plist"></div>`}
@@ -147,4 +148,10 @@ function tStat(d){const c=d.cards||[];if(!c[0]||!c[1])return '<div class="box no
 
 document.querySelectorAll('nav.bottom button').forEach(b=>b.onclick=()=>{S.view=b.dataset.v;document.querySelectorAll('nav.bottom button').forEach(x=>x.classList.toggle('on',x===b));$('#detail').classList.add('hidden');S.detail=null;render()});
 load(0).then(()=>{for(const d of [-2,-1,1,2])load(d)});stream();
-if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js');
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
+function staticLoop(){const onCh=ids=>{if(!ids.length){upd();return}for(const d of Object.keys(S.data))S.data[d]=ST.all.filter(m=>m.day===+d);upd();
+  if(S.view==='zapasy'||S.view==='oblibene')render();if(S.detail&&ids.includes(S.detail.id))openDetail(S.detail.id,true)};
+ const tick=async()=>{try{onCh(await liveTick())}catch(e){}setTimeout(tick,document.hidden?15000:4000)};setTimeout(tick,500);
+ /* Flashscore feed v prohlížeči nejde: preflight kvůli hlavičce x-fsign nevrací Access-Control-Allow-Origin */
+ const odd=async()=>{const l=ST.all.filter(m=>m.status==='live'&&m.fs);await Promise.all(l.map(oddsFor));onCh(l.map(m=>m.id));setTimeout(odd,30000)};setTimeout(odd,8000);
+ setInterval(async()=>{const old=ST.byId;_st0=loadStatic();await _st0;for(const m of ST.all){const o=old[m.id];if(o&&o.status==='live'&&m.status!=='finished')Object.assign(m,{status:o.status,sets:o.sets,pts:o.pts,pts_raw:o.pts_raw,server:o.server,odds:o.odds||m.odds,odds_table:o.odds_table});liveCalc(m)}onCh(ST.all.map(m=>m.id))},300000)}

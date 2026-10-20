@@ -1,5 +1,5 @@
 # Hugging Face Spaces (Docker) / Render / Fly.io. Data se stáhnou a model natrénuje při buildu (~5 min, ~4 GB RAM).
-FROM python:3.12-slim
+FROM python:3.13-slim
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
 RUN useradd -m -u 1000 user
 WORKDIR /app
