@@ -84,11 +84,11 @@ function liveCalc(m) { if (m.status !== 'live' || m.pred == null) { m.live = nul
   const pts = m.pts || [0, 0]; const bo = m.best_of || 3;
   const view = TenisLive.tbView(m.sets, pts, bo, m.match_tb);
   let done, cur, matchTb = false, tbTo = 7;
-  if (view && view.kind === 'match') { done = (m.sets || []).slice(); cur = [0, 0]; matchTb = true; tbTo = view.target; }
+  if (view && view.kind === 'match') { done = TenisLive.liveSplit(m.sets, 'finished').done; cur = [0, 0]; matchTb = true; tbTo = view.target; }
   else {
-    done = (m.sets || []).slice(0, -1); cur = m.sets && m.sets.length ? m.sets[m.sets.length - 1] : [0, 0];
+    const sp = TenisLive.liveSplit(m.sets, 'live');
+    done = sp.done; cur = sp.cur;
     if (view) tbTo = view.target;
-    else if (cur && ((Math.max(cur[0], cur[1]) >= 6 && Math.abs(cur[0] - cur[1]) >= 2) || Math.max(cur[0], cur[1]) === 7)) { done = (m.sets || []).slice(); cur = [0, 0]; }
     if (done.length >= bo - 1) tbTo = 10;
   }
   const l = MK.live(m.pred, done, cur, pts, m.server, m.g === 'W', m.best_of, tbTo, matchTb);

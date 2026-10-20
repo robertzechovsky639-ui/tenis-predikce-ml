@@ -98,6 +98,11 @@
     return { p: Math.round(p * 10000) / 10000, note: noteOf(kinds), kinds };
   }
 
+  function finishedSet(s) {
+    if (!s) return false;
+    const a = s[0] | 0, b = s[1] | 0, hi = Math.max(a, b), lo = Math.min(a, b);
+    return (hi >= 6 && hi - lo >= 2) || (hi === 7 && lo === 6);
+  }
   function normSets(sets) {
     const o = [];
     for (const s of sets || []) {
@@ -105,8 +110,26 @@
       if (a < 0 || b < 0) continue;
       o.push([a, b]);
     }
-    while (o.length && o[o.length - 1][0] === 0 && o[o.length - 1][1] === 0) o.pop();
+    // 0:0 po dohraném setu je nový set (i po 7:6). 0:0 po nedohraném setu je jen výplň.
+    while (o.length >= 2 && o[o.length - 1][0] === 0 && o[o.length - 1][1] === 0 && !finishedSet(o[o.length - 2])) o.pop();
+    while (o.length === 1 && o[0][0] === 0 && o[0][1] === 0) o.pop();
+    while (o.length >= 2 && o[o.length - 1][0] === 0 && o[o.length - 1][1] === 0 && o[o.length - 2][0] === 0 && o[o.length - 2][1] === 0) o.pop();
     return o;
+  }
+  function dropOpen(sets) {
+    const s = normSets(sets).map(x => [x[0], x[1]]);
+    if (s.length && s[s.length - 1][0] === 0 && s[s.length - 1][1] === 0) s.pop();
+    return s;
+  }
+  function liveSplit(sets, status) {
+    // Dohaný set (i 7:6 / 6:7) nepatří do aktuálního. Když je poslední dohraný a zápas žije, hraje se další od 0:0.
+    const s = normSets(sets).map(x => [x[0], x[1]]);
+    if (status === 'live') {
+      if (!s.length) return { done: [], cur: [0, 0], n: 1 };
+      if (finishedSet(s[s.length - 1])) return { done: s, cur: [0, 0], n: s.length + 1 };
+      return { done: s.slice(0, -1), cur: s[s.length - 1], n: s.length };
+    }
+    return { done: s.filter(finishedSet), cur: null, n: s.length };
   }
   function pointRank(pts) {
     if (!pts) return -1;
@@ -117,7 +140,21 @@
     const A = normSets(aSets), B = normSets(bSets);
     const n = Math.max(A.length, B.length);
     for (let i = 0; i < n; i++) {
-      const x = A[i] || [0, 0], y = B[i] || [0, 0];
+      const x = A[i], y = B[i];
+      if (!x || !y) {
+        const longer = y || x, prev = (y ? B : A)[i - 1];
+        const open = longer && longer[0] === 0 && longer[1] === 0 && prev && finishedSet(prev);
+        if (open) {
+          // Nový set 0:0 je dopředu, kratší seznam je pozadu. Nižší body nového snímku set nepřepíšou.
+          if (!x && y) return pointRank(bPts) < pointRank(aPts) ? -1 : 1;
+          return -1;
+        }
+        const xx = x || [0, 0], yy = y || [0, 0];
+        if (xx[0] === yy[0] && xx[1] === yy[1]) continue;
+        if (yy[0] >= xx[0] && yy[1] >= xx[1]) return 1;
+        if (xx[0] >= yy[0] && xx[1] >= yy[1]) return -1;
+        return -1;
+      }
       if (x[0] === y[0] && x[1] === y[1]) continue;
       if (y[0] >= x[0] && y[1] >= x[1]) return 1;
       if (x[0] >= y[0] && x[1] >= y[1]) return -1;
@@ -161,11 +198,6 @@
     if (current !== 1 && current !== 2) return null;
     return tbOnFirst(pts) ? current : 3 - current;
   }
-  function finishedSet(s) {
-    if (!s) return false;
-    const a = s[0] | 0, b = s[1] | 0, hi = Math.max(a, b), lo = Math.min(a, b);
-    return (hi >= 6 && hi - lo >= 2) || (hi === 7 && lo === 6);
-  }
   function tbView(sets, pts, bestOf, matchTb) {
     // Běžný tiebreak je 6:6. Supertiebreak na 10 je rozhodující set, nebo celý rozhodující set hraný jen jako tiebreak.
     const s = normSets(sets);
@@ -175,9 +207,10 @@
     if (cur && cur[0] === 6 && cur[1] === 6) {
       return { target: s.length >= bo ? 10 : 7, pts: p, kind: 'set' };
     }
-    if (!s.length || !s.every(finishedSet)) return null;
+    const played = cur && cur[0] === 0 && cur[1] === 0 ? s.slice(0, -1) : s;
+    if (!played.length || !played.every(finishedSet)) return null;
     let a = 0, b = 0;
-    for (const g of s) { if ((g[0] | 0) > (g[1] | 0)) a++; else if ((g[1] | 0) > (g[0] | 0)) b++; }
+    for (const g of played) { if ((g[0] | 0) > (g[1] | 0)) a++; else if ((g[1] | 0) > (g[0] | 0)) b++; }
     if (a === b && a > 0 && a * 2 + 1 === bo && (matchTb || p[0] > 4 || p[1] > 4)) return { target: 10, pts: p, kind: 'match' };
     return null;
   }
@@ -257,9 +290,9 @@
     if (m.status === 'finished' && upd.status !== 'finished') return false;
     if (m.status === 'live' && upd.status === 'upcoming') return false;
     if (upd.status === 'finished' && m.status !== 'finished') {
-      const setRel = cmpScore(m.sets, null, upd.sets, null);
+      const setRel = cmpScore(dropOpen(m.sets), null, dropOpen(upd.sets), null);
       if (setRel < 0 || (stale && setRel <= 0)) return false;
-      if (setRel > 0) m.sets = cleanSets(upd.sets);
+      m.sets = dropOpen(setRel > 0 ? upd.sets : m.sets);
       m.status = 'finished';
       if (upd.winner) m.winner = upd.winner;
       m.pts = null; m.pts_raw = null; m.server = null; m.srvTrust = 0;
@@ -318,6 +351,6 @@
 
   root.TenisLive = {
     toks, isPlaceholder, relaxKeys, buildIndex, matchPlayer, eloFromRank, tourElo, fallbackPred,
-    normSets, pointRank, cmpScore, isDeuceReset, reportedServer, tbNow, tbView, applyLive, MIN_HISTORY, RANK_ELO, TOUR_PRIOR
+    normSets, pointRank, cmpScore, isDeuceReset, finishedSet, liveSplit, reportedServer, tbNow, tbView, applyLive, MIN_HISTORY, RANK_ELO, TOUR_PRIOR
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

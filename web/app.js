@@ -35,10 +35,11 @@ function filt(list){return list.filter(m=>{
 function scoreSig(m){const p=m.live?m.live.match:m.pred;return [m.status,JSON.stringify(m.sets),JSON.stringify(m.pts_raw||m.pts),m.server||0,m.winner||0,p==null?'':Math.round(p*100),m.pred_low?1:0,m.odds?(m.odds.best_a+','+m.odds.best_b):'',m.value||''].join('|')}
 function structSig(m){return [m.status,(m.sets||[]).length,m.pts_raw?1:0,m.pred!=null?1:0,m.odds?1:0,m.winner||0,m.server||0].join('|')}
 function visKey(){if(S.view==='oblibene')return 'f:'+Object.values(S.data).flat().filter(m=>S.fav.has(m.id)).map(m=>m.id).join(',');if(S.view!=='zapasy')return 'v:'+S.view;return [S.day,S.circ,S.filt,S.favOnly?1:0,(filt(S.data[S.day]||[])).map(m=>m.id).join(',')].join('|')}
-function patchCard(el,m){const rows=el.querySelectorAll('.row');if(rows.length<2)return false;const live=m.status==='live';
+function curSetIdx(m){return m.status==='live'&&m.sets.length&&!TenisLive.finishedSet(m.sets[m.sets.length-1])?m.sets.length-1:-1}
+function patchCard(el,m){const rows=el.querySelectorAll('.row');if(rows.length<2)return false;const curK=curSetIdx(m);
  for(let i=0;i<2;i++){const box=rows[i].querySelector('.sc');if(!box){if(m.sets.length)return false;continue}
   const spans=box.querySelectorAll('span');let k=m.server===i+1?1:0;if(spans.length<k+m.sets.length+(m.pts_raw?1:0))return false;
-  for(let s=0;s<m.sets.length;s++,k++){const t=String(m.sets[s][i]);const cur=live&&s===m.sets.length-1;if(spans[k].textContent!==t){spans[k].textContent=t;spans[k].className=cur?'cur flash':'';}}
+  for(let s=0;s<m.sets.length;s++,k++){const t=String(m.sets[s][i]);const cur=s===curK;if(spans[k].textContent!==t){spans[k].textContent=t;spans[k].className=cur?'cur flash':'';}}
   if(m.pts_raw){const raw=m.pts_raw[i];const t=(raw==50||raw==='A')?'A':String(raw);if(spans[k].textContent!==t){spans[k].textContent=t;spans[k].className='cur flash';}}}
  const p=m.live?m.live.match:m.pred;const bar=el.querySelector('.bar');
  if(p!=null&&bar){const bs=bar.querySelectorAll('span');const a=pct(p),b=pct(1-p);if(bs[0]&&bs[0].textContent!==a)bs[0].textContent=a;if(bs[1]&&bs[1].textContent!==b)bs[1].textContent=b;const bi=bar.querySelector('i');if(bi)bi.style.width=(p*100)+'%';}
@@ -53,8 +54,8 @@ function paintList(ids){if(!ids||!ids.length)return;if(!_pq)_pq=new Set();for(co
  const run=()=>{_raf=0;const q=_pq;_pq=null;paintListNow([...q]);};
  _raf=(window.requestAnimationFrame||(f=>setTimeout(f,16)))(run);}
 function paintListNow(ids){const k=visKey();if(k!==S.vis){render();return}for(const id of ids||[]){const el=document.querySelector(`.m[data-id="${CSS.escape(id)}"]`);const m=(typeof ST!=='undefined'&&ST.byId&&ST.byId[id])||Object.values(S.data).flat().find(x=>x.id===id);if(el&&m)syncCard(el,m)}}
-function card(m){const fin=m.status==='finished',live=m.status==='live';
- const sc=i=>m.sets.map((s,k)=>`<span class="${live&&k===m.sets.length-1?'cur':''}">${s[i]}</span>`).join('');
+function card(m){const fin=m.status==='finished',live=m.status==='live',curK=curSetIdx(m);
+ const sc=i=>m.sets.map((s,k)=>`<span class="${k===curK?'cur':''}">${s[i]}</span>`).join('');
  const t=new Date(m.ts*1000).toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit'});
  const p=m.live?m.live.match:m.pred;
  const pl=(i)=>`<div class="row"><div class="pl ${m.winner===i+1?'w':''}"><span class="flag">${esc((m.players[i].country||'').slice(0,3).toUpperCase())}</span>${esc(shortN(m.players[i]))}${!m.pids[i]?' <span class="na">(bez historie)</span>':''}</div>
@@ -120,11 +121,11 @@ function bind(){document.querySelectorAll('.days button').forEach(b=>b.onclick=(
 // ---- detail ----
 async function openDetail(id,refresh){const d=await api('/api/match/'+encodeURIComponent(id));S.detail=d;if(!refresh)S.tab='prehled';drawDetail();if(!refresh)$('#detail').scrollTop=0}
 function drawDetail(){const d=S.detail,el=$('#detail');el.classList.remove('hidden');const [A,B]=d.players;
- const sa=d.sets.filter((s,i)=>!(d.status==='live'&&i===d.sets.length-1)).filter(s=>s[0]>s[1]).length, sb=d.sets.filter((s,i)=>!(d.status==='live'&&i===d.sets.length-1)).filter(s=>s[1]>s[0]).length;
- const cur=d.status==='live'&&d.sets.length?d.sets.at(-1).join('–')+(d.pts_raw?` · gem ${d.pts_raw.map(x=>x==50?'A':x).join(':')}`:'')+(d.server?` · podává ${esc(shortN(d.players[d.server-1]))}`:''):'';const [tg,cl]=tagOf(d.circuit);const c=d.cards||[];
+ const sp=TenisLive.liveSplit(d.sets,d.status),sa=sp.done.filter(s=>s[0]>s[1]).length,sb=sp.done.filter(s=>s[1]>s[0]).length;
+ const setNo=d.status==='live'?(sp.n||1):0,gamesNow=d.status==='live'&&sp.cur?sp.cur.join('–'):'';const [tg,cl]=tagOf(d.circuit);const c=d.cards||[];
  const pp=(p,cd)=>`<div class="pp"><div class="av">${initials(p.name)}</div><b>${esc(shortN(p))}</b><small>${cd&&cd.rank?'#'+cd.rank:esc(p.country||'')}</small></div>`;
  let h=`<div class="dh"><button class="back" id="bk">‹</button><div class="tt"><b>${esc(d.tournament)}</b><small>${esc(d.circuit)} · ${surfCz[d.surface]||d.surface} · ${d.g==='M'?'Muži':'Ženy'}${d.qual?' · Kvalifikace':''}${d.round?' · '+esc(d.round):''}</small></div>${d.demo?'<span class="tag demo">DEMO</span>':''}<span class="tag ${cl}">${tg}</span></div>
- <div class="score">${pp(A,c[0])}<div class="mid"><div class="big">${sa}<span class="colon">:</span>${sb}</div><small>${d.status==='live'&&d.sets.length?d.sets.at(-1).join('–'):''}</small><small>${d.status==='live'?`<span class="livebadge">▶ ${d.sets.length||1}. set${d.pts_raw?' · Gem '+d.pts_raw.map(x=>x==50?'A':x).join(':'):''}${d.server?' · podává '+esc(sur(d.players[d.server-1])):''}</span>`:d.status==='finished'?'Konec':new Date(d.ts*1000).toLocaleString('cs-CZ',{weekday:'short',hour:'2-digit',minute:'2-digit'})}</small>
+ <div class="score">${pp(A,c[0])}<div class="mid"><div class="big">${sa}<span class="colon">:</span>${sb}</div><small>${gamesNow}</small><small>${d.status==='live'?`<span class="livebadge">▶ ${setNo}. set${d.pts_raw?' · Gem '+d.pts_raw.map(x=>x==50?'A':x).join(':'):''}${d.server?' · podává '+esc(sur(d.players[d.server-1])):''}</span>`:d.status==='finished'?'Konec':new Date(d.ts*1000).toLocaleString('cs-CZ',{weekday:'short',hour:'2-digit',minute:'2-digit'})}</small>
  <button class="star ${S.fav.has(d.id)?'on':''}" id="fv" style="margin-top:8px;height:38px">${S.fav.has(d.id)?'★':'☆'}</button></div>${pp(B,c[1])}</div>
  <div class="tabs">${[['prehled','Přehled'],['predikce','Predikce'],['kurzy','Kurzy'],['h2h','H2H'],['stat','Statistiky']].map(([k,t])=>`<button data-t="${k}" class="${S.tab===k?'on':''}">${t}</button>`).join('')}</div>`;
  h+=({prehled:tPrehled,predikce:tPred,kurzy:tKurzy,h2h:tH2H,stat:tStat}[S.tab])(d);el.innerHTML=h;
@@ -142,10 +143,10 @@ function tPrehled(d){if(d.pred==null)return `<div class="box note">Pro tento zá
   `<p class="note">${d.pred_low?esc(d.pred_note||'Odhad – nízká spolehlivost.'):(d.live?'Z předzápasové šance, síly hráčů a skóre (sety, gemy, body, podání). Po každém bodu/gemu se posune.':'Před zápasem: LightGBM'+(d.pred_lr!=null?' · logistická regrese '+pct(d.pred_lr):'')+(d.elo_p!=null?' · Elo '+pct(d.elo_p):'')+'.')}</p>`);
  if(d.live){const L=d.live;
   if(L.game!=null)h+=`<div class="sep"></div><div class="lbl">GEM TEĎ</div><div class="pp2"><div><b class="pa">${pct(L.game)}</b><small>${esc(shortN(d.players[0]))}</small></div><div><b class="pb">${pct(1-L.game)}</b><small>${esc(shortN(d.players[1]))}</small></div></div><p class="note">Z aktuálního stavu bodů a podávajícího.</p>`;
-  const [pa,pb]=[L.serve_a,L.serve_b],ps=(MK.setP(pa,pb,0,0,true)+MK.setP(pa,pb,0,0,false))/2,n=Math.max(d.sets.length,1),need=Math.floor(d.best_of/2)+1;
+  const [pa,pb]=[L.serve_a,L.serve_b],ps=(MK.setP(pa,pb,0,0,true)+MK.setP(pa,pb,0,0,false))/2,sp=TenisLive.liveSplit(d.sets,d.status),n=Math.max(sp.n,1),need=Math.floor(d.best_of/2)+1;
   h+=`<div class="sep"></div><div class="lbl">KDO BERE SET</div>`;
-  for(let k=1;k<=d.best_of;k++){const s=d.sets[k-1];let p,lab;
-   if(k<n){p=s[0]>s[1]?1:0;lab='odehráno'}else if(k===n){p=L.set;lab='teď'}else{p=ps;lab=k===n+1?'podle skóre':'když bude'}
+  for(let k=1;k<=d.best_of;k++){const s=sp.done[k-1];let p,lab;
+   if(k<n){p=s&&s[0]>s[1]?1:0;lab='odehráno'}else if(k===n){p=L.set;lab='teď'}else{p=ps;lab=k===n+1?'podle skóre':'když bude'}
    h+=`<div class="setrow"><div><b>${k}. set</b><small>${lab}</small></div><div><b class="pa">${pct(p)}</b></div><div><b class="pb">${pct(1-p)}</b></div></div>`}
   h+=`<p class="note">${esc(L.note)}.</p>`}
  h+='</div>';
@@ -199,9 +200,9 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
 const FP={};function toast(t){const e=document.createElement('div');e.className='toast';e.textContent=t;document.body.appendChild(e);setTimeout(()=>e.remove(),5000)}
 function notify(t){toast(t);if(window.Notification&&Notification.permission==='granted'&&navigator.serviceWorker)navigator.serviceWorker.ready.then(r=>r.showNotification('Tenis · oblíbené',{body:t,icon:'icon.svg',tag:'fav'})).catch(()=>{})}
 function favEvents(ids){for(const id of ids){if(!S.fav.has(id))continue;const m=(typeof ST!=='undefined'&&ST.byId[id])||null;if(!m)continue;const o=FP[id];const nm=`${sur(m.players[0])} – ${sur(m.players[1])}`;
-  const sets=m.sets.filter((s,i)=>!(m.status==='live'&&i===m.sets.length-1));if(o){if(o.status==='upcoming'&&m.status==='live')notify(`▶ Začal zápas ${nm}`);
-   else if(m.status==='finished'&&o.status!=='finished')notify(`🏁 Konec: ${nm} ${m.sets.map(s=>s.join(':')).join(' ')}`);else if(sets.length>o.sets)notify(`Set: ${nm} ${m.sets.map(s=>s.join(':')).join(' ')}`)}
-  FP[id]={status:m.status,sets:sets.length}}}
+  const done=TenisLive.liveSplit(m.sets,m.status).done;if(o){if(o.status==='upcoming'&&m.status==='live')notify(`▶ Začal zápas ${nm}`);
+   else if(m.status==='finished'&&o.status!=='finished')notify(`🏁 Konec: ${nm} ${m.sets.map(s=>s.join(':')).join(' ')}`);else if(done.length>o.sets)notify(`Set: ${nm} ${m.sets.map(s=>s.join(':')).join(' ')}`)}
+  FP[id]={status:m.status,sets:done.length}}}
 async function askNotif(){if(!window.Notification){toast('Tento prohlížeč systémová upozornění bez serveru nepodporuje – upozornění se ukážou v aplikaci, dokud je otevřená.');return}
  const r=await Notification.requestPermission();toast(r==='granted'?'Upozornění povolena (jen když je aplikace otevřená nebo na pozadí v prohlížeči).':'Upozornění nepovolena – zůstanou jen v aplikaci.')}
 // ---- tažení dolů = obnovit ----

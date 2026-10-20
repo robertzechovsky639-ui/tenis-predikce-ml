@@ -47,9 +47,8 @@ class Service:
             m.pop("pred_low", None); m.pop("pred_note", None)
         m["live"] = None
         if m["status"] == "live" and m["pred"] is not None:
-            done, cur = (m["sets"][:-1], m["sets"][-1]) if m["sets"] else ([], [0, 0])
-            if cur and (max(cur) >= 6 and abs(cur[0] - cur[1]) >= 2 or max(cur) == 7):
-                done, cur = m["sets"], [0, 0]
+            sp = SM.split_live(m["sets"], "live")
+            done, cur = sp["done"], sp["cur"]
             pts = tuple(m.get("pts") or (0, 0)) if cur != [0, 0] or m.get("pts") else (0, 0)
             lv = markov.live(m["pred"], [tuple(s) for s in done], tuple(cur), pts, m.get("server"), g == "W", m["best_of"])
             m["live"] = dict(match=round(lv["match"], 4), set=round(lv["set"], 4), hold_a=round(lv["hold_a"], 3),

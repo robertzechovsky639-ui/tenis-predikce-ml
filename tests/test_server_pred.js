@@ -95,3 +95,18 @@ const serveNext = tbMatch(1, [[7, 6]], [0, 0]); liveCalc(serveNext);
 // Na 0:0 dalšího setu je šance zápasu pro oba podávající stejná; šance gemu se otočí podle toho, kdo podává.
 assert.ok(after.live.game < 0.5 && serveNext.live.game > 0.5);
 assert.ok(after.live.game < serveNext.live.game, 'příjemce prvního bodu tiebreaku podává další set');
+
+// 6:7 v tiebreaku a pak 0:0 je třetí set. Stejné číslo, ať je 0:0 v poli setů, nebo jen jako gemy.
+function board(sets) {
+  const sp = TL.liveSplit(sets, 'live');
+  return { n: sp.n, sa: sp.done.filter(s => s[0] > s[1]).length, sb: sp.done.filter(s => s[1] > s[0]).length, cur: sp.cur.join(':') };
+}
+const fw = tbMatch(1, [[6, 3], [6, 7]], [0, 0]); liveCalc(fw);
+const fw3 = tbMatch(1, [[6, 3], [6, 7], [0, 0]], [0, 0]); liveCalc(fw3);
+assert.deepStrictEqual(board([[6, 3], [6, 7]]), { n: 3, sa: 1, sb: 1, cur: '0:0' });
+assert.deepStrictEqual(board([[6, 3], [6, 7], [0, 0]]), board([[6, 3], [6, 7]]));
+assert.ok(fw.live.set > 0.05 && fw.live.set < 0.95, 'třetí set 0:0 není rozhodnutý');
+assert.ok(Math.abs(fw.live.set - fw3.live.set) < 1e-12 && Math.abs(fw.live.match - fw3.live.match) < 1e-12);
+const seven = tbMatch(1, [[7, 6]], [0, 0]); liveCalc(seven);
+assert.strictEqual(TL.liveSplit([[7, 6]], 'live').n, 2);
+assert.ok(seven.live.set > 0.05 && seven.live.set < 0.95, '7:6 je dohraný set, predikce patří dalšímu');

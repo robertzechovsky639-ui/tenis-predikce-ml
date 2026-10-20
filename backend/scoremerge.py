@@ -4,6 +4,17 @@ Stejná pravidla jsou v web/live.js (prohlížeč). Shoda se ověřuje testem na
 """
 
 
+def finished_set(s):
+    if not s or len(s) < 2:
+        return False
+    try:
+        a, b = int(s[0]), int(s[1])
+    except (TypeError, ValueError):
+        return False
+    hi, lo = max(a, b), min(a, b)
+    return (hi >= 6 and hi - lo >= 2) or (hi == 7 and lo == 6)
+
+
 def norm_sets(sets):
     out = []
     for s in sets or []:
@@ -14,9 +25,33 @@ def norm_sets(sets):
         if a < 0 or b < 0:
             continue
         out.append([a, b])
-    while out and out[-1] == [0, 0]:
+    # 0:0 po dohraném setu je nový set (i po 7:6). 0:0 po nedohraném setu je jen výplň.
+    while len(out) >= 2 and out[-1] == [0, 0] and not finished_set(out[-2]):
+        out.pop()
+    while len(out) == 1 and out[0] == [0, 0]:
+        out.pop()
+    while len(out) >= 2 and out[-1] == [0, 0] and out[-2] == [0, 0]:
         out.pop()
     return out
+
+
+def drop_open(sets):
+    s = [list(x) for x in norm_sets(sets)]
+    if s and s[-1] == [0, 0]:
+        s.pop()
+    return s
+
+
+def split_live(sets, status="live"):
+    """Dokončené sety a aktuální gemy. 7:6 i 6:7 jsou dohrané; další set začíná 0:0."""
+    s = [list(x) for x in norm_sets(sets)]
+    if status == "live":
+        if not s:
+            return {"done": [], "cur": [0, 0], "n": 1}
+        if finished_set(s[-1]):
+            return {"done": s, "cur": [0, 0], "n": len(s) + 1}
+        return {"done": s[:-1], "cur": s[-1], "n": len(s)}
+    return {"done": [x for x in s if finished_set(x)], "cur": None, "n": len(s)}
 
 
 def point_rank(pts):
@@ -30,11 +65,32 @@ def point_rank(pts):
 
 
 def cmp_score(a_sets, a_pts, b_sets, b_pts):
-    """1 = b je před a, -1 = b je za a, 0 = stejný stav gemů a bodů."""
+    """1 = b je před a, -1 = b je za a, 0 = stejný stav gemů a bodů.
+
+    Delší seznam po dohraném setu (i když nový set je 0:0) je dopředu.
+    Kratší seznam je pozadu. Body, které by tím klesly, set 0:0 nepřepíšou.
+    """
     A, B = norm_sets(a_sets), norm_sets(b_sets)
     for i in range(max(len(A), len(B))):
-        x = A[i] if i < len(A) else [0, 0]
-        y = B[i] if i < len(B) else [0, 0]
+        x = A[i] if i < len(A) else None
+        y = B[i] if i < len(B) else None
+        if x is None or y is None:
+            longer = y if y is not None else x
+            prev = (B if y is not None else A)[i - 1] if i else None
+            open_set = longer == [0, 0] and prev is not None and finished_set(prev)
+            if open_set:
+                if x is None and y is not None:
+                    return -1 if point_rank(b_pts) < point_rank(a_pts) else 1
+                return -1
+            xx = x if x is not None else [0, 0]
+            yy = y if y is not None else [0, 0]
+            if xx == yy:
+                continue
+            if yy[0] >= xx[0] and yy[1] >= xx[1]:
+                return 1
+            if xx[0] >= yy[0] and xx[1] >= yy[1]:
+                return -1
+            return -1
         if x == y:
             continue
         if y[0] >= x[0] and y[1] >= x[1]:
@@ -70,6 +126,22 @@ def keep_score(prev, new):
         for k in ("status", "sets", "pts", "pts_raw", "server", "winner"):
             if k in prev:
                 new[k] = prev[k]
+        return new
+    if new.get("status") == "finished" and prev.get("status") != "finished":
+        rel_fin = cmp_score(drop_open(prev.get("sets")), None, drop_open(new.get("sets")), None)
+        if rel_fin < 0:
+            new["sets"] = prev.get("sets")
+            new["pts"] = prev.get("pts")
+            new["pts_raw"] = prev.get("pts_raw")
+            new["server"] = prev.get("server")
+            new["srv_trust"] = prev.get("srv_trust")
+            new["status"] = "live"
+            return new
+        new["sets"] = drop_open(new.get("sets") if rel_fin > 0 else prev.get("sets"))
+        new["pts"] = None
+        new["pts_raw"] = None
+        new["server"] = None
+        new["srv_trust"] = 0
         return new
     rel = cmp_score(prev.get("sets"), prev.get("pts"), new.get("sets"), new.get("pts"))
     if rel > 0:
