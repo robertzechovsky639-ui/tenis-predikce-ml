@@ -101,6 +101,37 @@ assert.ok(neu.every((m, i) => m.server === pbpSrv(i) && m.srvTrust === 3));
   assert.strictEqual(JSON.stringify(m.pts), JSON.stringify([3, 4]));
 }
 
+// firstToServe je aktuální podávající. Lichý počet gemů ho nesmí otočit zpátky na prvního podávajícího.
+{
+  assert.strictEqual(TL.reportedServer(2, true), 2);
+  assert.strictEqual(TL.reportedServer(1, false), 2);
+  assert.strictEqual(TL.reportedServer(null, true), null);
+  assert.strictEqual(TL.reportedServer(0, true), null);
+  const m = { status: 'live', sets: [[6, 4], [2, 2]], pts: [0, 0], server: 1, srvTrust: 1, src_pts: 'Sofascore', _accAt: 1 };
+  assert.strictEqual(TL.applyLive(m, { status: 'live', sets: [[6, 4], [2, 2]], pts: [1, 0], server: 2, srvTrust: 1, srv_src: 'firstToServe', src_pts: 'Sofascore' }, { src: 'sofascore', t0: 5 }, () => true), true);
+  assert.strictEqual(m.server, 2);
+  assert.strictEqual(TL.applyLive(m, { status: 'live', sets: [[6, 4], [2, 2]], pts: [1, 1], server: 1, srvTrust: 1, srv_src: 'firstToServe', src_pts: 'Sofascore' }, { src: 'sofascore', t0: 9 }, () => true), true);
+  assert.strictEqual(m.server, 1);
+}
+
+// tie-break: stejný zdroj smí podávajícího změnit, slabší zdroj ne
+{
+  const m = { status: 'live', sets: [[6, 6]], pts: [0, 0], server: 1, srvTrust: 2, src_pts: '365scores', _accAt: 1 };
+  assert.strictEqual(TL.applyLive(m, { status: 'live', sets: [[6, 6]], pts: [2, 1], server: 2, srvTrust: 2, srv_src: '365', src_pts: '365scores' }, { src: 's365', t0: 5 }, () => true), true);
+  assert.strictEqual(m.server, 2);
+  assert.strictEqual(TL.applyLive(m, { status: 'live', sets: [[6, 6]], pts: [2, 2], server: 1, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 6 }, () => true), true);
+  assert.strictEqual(m.server, 2);
+  assert.strictEqual(m.pts.join(':'), '2:2');
+}
+
+// nový gem bez hlášeného podávajícího smaže starého — žádný odhad
+{
+  const m = { status: 'live', sets: [[1, 1]], pts: [3, 0], server: 1, srvTrust: 3, src_pts: 'Sofascore', _accAt: 1 };
+  assert.strictEqual(TL.applyLive(m, { status: 'live', sets: [[2, 1]], pts: [0, 0], server: null, srvTrust: 0, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 5 }, () => true), true);
+  assert.strictEqual(m.server, null);
+  assert.strictEqual(m.srvTrust, 0);
+}
+
 // dohraný zápas se znovu neotevře a živý nespadne do „nadcházející“
 {
   const m = { status: 'finished', sets: [[6, 2], [6, 4]], pts: null, server: null };

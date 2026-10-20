@@ -13,6 +13,12 @@ def test_markov_basics():
     # vedení zvyšuje šanci
     assert markov.live(0.5, [(6, 3)], (0, 0))["match"] > 0.5
     assert markov.live(0.5, [], (5, 0), (3, 0), 1)["set"] > 0.95
+    serving = markov.live(0.55, [], (5, 4), (0, 0), 1)
+    returning = markov.live(0.55, [], (5, 4), (0, 0), 2)
+    unknown = markov.live(0.55, [], (5, 4), (0, 0), None)
+    assert serving["match"] > returning["match"]
+    assert unknown["game"] is None and serving["game"] is not None
+    assert abs(unknown["match"] - (serving["match"] + returning["match"]) / 2) < 1e-9
 
 def test_no_leakage():
     d = pd.DataFrame(dict(date=pd.to_datetime(["2020-01-06"] * 2), tourney_id=["t", "t"], rord=[9, 10], match_num=[1, 2],
