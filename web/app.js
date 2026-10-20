@@ -11,7 +11,10 @@ async function api(u){if(STATIC)return staticApi(u);const r=await fetch(u);if(!r
 function saveFav(){localStorage.fav=JSON.stringify([...S.fav])}
 
 let _st0=null;async function load(day){if(STATIC){if(!_st0&&cacheLoad()){for(let d=-2;d<=2;d++)S.data[d]=ST.all.filter(m=>m.day===d);render();upd()}_st0=_st0||loadStatic();await _st0}const d=await api('/api/matches?day='+day);S.data[day]=d.matches;S.status=d.status;render();upd()}
-function upd(){const s=S.status||{};if(STATIC){const lv=ST.all.filter(m=>m.status==='live').length;s.live=lv;$('#upd').innerHTML=`<span class="g"></span>${lv?'Živě':'Bez živých zápasů'} · skóre ${ST.lastLive?ST.lastLive.toLocaleTimeString('cs-CZ'):'–'} (${ST.liveMs??'–'} ms) · predikce ${ST.generated?new Date(ST.generated*1000).toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit'}):'–'}`;return}
+function upd(){const s=S.status||{};if(STATIC){const lv=ST.all.filter(m=>m.status==='live').length;s.live=lv;const H={sofascore:'Sofascore',s365:'365scores',espn:'ESPN',sofaDetail:'detail'};const hd=health().map(h=>`<span class="hd ${h.state}" title="${H[h.k]}">${H[h.k]}</span>`).join('');
+  const age=ST.generated?Math.round((Date.now()/1000-ST.generated)/60):null;
+  $('#upd').innerHTML=`<span class="g"></span>${lv?'Živě':'Bez živých zápasů'} · ${lv} · predikce před ${age??'–'} min<div class="hrow">${hd}</div>`;return;
+  $('#upd').innerHTML=`<span class="g"></span>${lv?'Živě':'Bez živých zápasů'} · skóre ${ST.lastLive?ST.lastLive.toLocaleTimeString('cs-CZ'):'–'} (${ST.liveMs??'–'} ms) · predikce ${ST.generated?new Date(ST.generated*1000).toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit'}):'–'}`;return}
  const l=S.lat.length?` · zpoždění push ${Math.round(S.lat.at(-1))} ms`:'';
  $('#upd').innerHTML=(s.demo?'<span class="tag demo">DEMO</span> ':'<span class="g"></span>')+`${s.live?'Živě':'Bez živých zápasů'} · aktualizováno ${s.last_poll?new Date(s.last_poll).toLocaleTimeString('cs-CZ'):'–'}${l}`}
 

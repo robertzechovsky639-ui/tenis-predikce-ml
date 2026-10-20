@@ -6,10 +6,10 @@ UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.1
 with sync_playwright() as p:
     b = p.chromium.launch(executable_path="/usr/bin/google-chrome"); ctx = b.new_context(viewport=dict(width=390, height=844), user_agent=UA, is_mobile=True)
     pg = ctx.new_page(); t = time.time(); pg.goto(URL, wait_until="domcontentloaded"); pg.wait_for_selector(".m[data-id]", timeout=60000)
-    first = round((time.time() - t) * 1000); pg.wait_for_timeout(20000)
+    first = round((time.time() - t) * 1000); pg.wait_for_timeout(40000)
     r = pg.evaluate("""()=>{const L=ST.all.filter(m=>m.status==='live');const by={};for(const m of L){const k=m.circuit;by[k]=by[k]||{live:0,fresh:0,server:0};by[k].live++;if(m.src_pts)by[k].fresh++;if(m.server)by[k].server++}
       const med=a=>a&&a.length?Math.round([...a].sort((x,y)=>x-y)[a.length>>1]):null;
-      return {live:L.length,live_fast_points:L.filter(m=>m.src_pts).length,with_server:L.filter(m=>m.server).length,with_pred:L.filter(m=>m.pred!=null).length,added_by_sofascore:ST.all.filter(m=>m.id.startsWith('ss-')).length,
+      return {live:L.length,live_fast_points:L.filter(m=>m.src_pts).length,with_server:L.filter(m=>m.server).length,with_pred:L.filter(m=>m.pred!=null).length,with_odds:L.filter(m=>m.odds).length,odds_sofa:L.filter(m=>m.odds_src==="Sofascore").length,server_pbp:L.filter(m=>m.srv_src==="pbp").length,upcoming_added:ST.all.filter(m=>m.id.startsWith("s365-")).length,added_by_sofascore:ST.all.filter(m=>m.id.startsWith('ss-')).length,
         by_circuit:by,sources:Object.fromEntries(Object.entries(SOURCES).map(([k,s])=>[k,{median_ms:med(s.lat),interval_ms:s.iv,polls:s.lat.length}])),errors:Object.keys(ST.srcOk).filter(k=>k.endsWith('Err'))}}""")
     print("první vykreslení (bez cache):", first, "ms"); print(json.dumps(r, ensure_ascii=False))
     pg2 = ctx.new_page(); t = time.time(); pg2.goto(URL, wait_until="domcontentloaded"); pg2.wait_for_selector(".m[data-id]", timeout=30000)

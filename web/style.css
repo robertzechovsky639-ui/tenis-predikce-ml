@@ -42,3 +42,5 @@ table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:8px 4px;b
 input.q{width:100%;background:var(--card);border:1px solid var(--line);border-radius:12px;color:var(--txt);padding:11px 12px;font-size:15px}
 .seg{display:flex;background:#14102f;border-radius:10px;padding:3px;gap:3px}.seg button{flex:1;background:none;border:0;color:var(--mut);padding:6px;border-radius:8px;font-weight:700;font-size:12px}.seg button.on{background:var(--card2);color:var(--txt)}
 .msg{margin:8px 12px;padding:10px 12px;border-radius:14px;background:var(--card);max-width:85%}.msg.me{margin-left:auto;background:#3b2486}
+
+.hrow{margin-top:4px;display:flex;gap:6px;flex-wrap:wrap}.hd{font-size:10px;padding:1px 6px;border-radius:6px;background:#2a2060;color:var(--mut)}.hd.ok{background:#173a35;color:var(--grn)}.hd.err{background:#4a1630;color:#ff8fb0}

@@ -96,7 +96,7 @@ async function srcSofa(changed) { const upd = mkUpd(changed); const d = await j(
         qual: /qualif/i.test(e.tournament?.name + ' ' + (e.roundInfo?.name || '')) ? 1 : 0, ts: e.startTimestamp, status: 'live', sets: [], winner: 0, best_of: 3, fs: null,
         players: [{ name: H.name, country: H.country?.alpha3 || '' }, { name: A.name, country: A.country?.alpha3 || '' }], pids: [null, null], pred: null, odds: null, day: 0 };
       await addPred(m); ST.all.push(m); ST.byId[m.id] = m; indexM(m); changed.add(m.id); ST.added = true }
-    const same = lastTok(H.name) === lastTok(m.players[0].name); const hs = e.homeScore || {}, as = e.awayScore || {};
+    const same = lastTok(H.name) === lastTok(m.players[0].name); m.ssid = e.id; m.ss_same = same; const hs = e.homeScore || {}, as = e.awayScore || {};
     const sets = []; for (let i = 1; i <= 5; i++) if (hs['period' + i] !== undefined) sets.push([hs['period' + i] | 0, as['period' + i] | 0]);
     const st = e.status?.type;
     upd(m, m => { if (st === 'inprogress') { m.status = 'live'; let p = [SPT[hs.point] ?? (+hs.point || 0), SPT[as.point] ?? (+as.point || 0)];
@@ -105,13 +105,47 @@ async function srcSofa(changed) { const upd = mkUpd(changed); const d = await j(
         // podávající: firstToServe + parita odehraných gemů (tiebreak = 1 gem)
         if (e.firstToServe) { const done = sets.slice(0, -1).reduce((a, s) => a + Math.min(s[0] + s[1], 13), 0) + (sets.length ? sets[sets.length - 1][0] + sets[sets.length - 1][1] : 0);
           let sv = done % 2 === 0 ? e.firstToServe : 3 - e.firstToServe; if (tb) { const n = p[0] + p[1]; if (Math.floor((n + 1) / 2) % 2 === 1) sv = 3 - sv }
-          m.server = same ? sv : 3 - sv } m.src_pts = 'Sofascore'; m.t_pts = Date.now();
+          m.server = same ? sv : 3 - sv; m.srv_src = 'firstToServe' } else if (m.pbp_srv) { const dg = totG(sets) - m.pbp_g; m.server = Math.abs(dg) % 2 ? 3 - m.pbp_srv : m.pbp_srv } m.src_pts = 'Sofascore'; m.t_pts = Date.now();
         const ss = same ? sets : sets.map(s => [s[1], s[0]]); if (totG(ss) >= totG(m.sets)) m.sets = ss }
       else if (st === 'finished' && m.status === 'live') { m.status = 'finished'; m.pts = m.pts_raw = m.server = null; m.winner = e.winnerCode ? (same ? e.winnerCode : 3 - e.winnerCode) : 0 } }) } }
 async function addPred(m) { try { await ensurePlayers(); const f = n => { const t = n.split(' '); const k = norm(n); return ST.players.find(p => p[0][0] === m.g && norm(p[1]) === k) };
-  const a = f(m.players[0].name), b = f(m.players[1].name); if (a && b) { const A = pCard(a, m.surface), B = pCard(b, m.surface); m.pred = lrPredict(A, B, m.surface).p; m.pred_lr = m.pred; m.pids = [a[0], b[0]]; m.pred_note = 'LR (prohlížeč)' } } catch (e) { } }
+  const f2 = n => f(n) || (() => { const k = lastTok(n), ini = norm(String(n).trim()[0] || ''); const c = ST.players.filter(p => p[0][0] === m.g && lastTok(p[1]) === k && norm(p[1])[0] === ini); return c.length === 1 ? c[0] : null })();
+  const a = f2(m.players[0].name), b = f2(m.players[1].name); if (a && b) { const A = pCard(a, m.surface), B = pCard(b, m.surface); m.pred = lrPredict(A, B, m.surface).p; m.pred_lr = m.pred; m.pids = [a[0], b[0]]; m.pred_note = 'LR (prohlížeč)' } } catch (e) { } }
+// ---------- detail živých zápasů ze Sofascore (podávající z point-by-point, kurzy) – postupně, 1 požadavek / 0,6 s ----------
+const frac = f => { const [a, b] = String(f).split('/').map(Number); return b ? 1 + a / b : null };
+async function sofaDetail(onChange) { let i = 0;
+  const step = async () => { let wait = 600;
+    try { const L = ST.all.filter(m => m.status === 'live' && m.ssid && (!m.server || m.srv_src === 'pbp' || (!m.odds && !(m.ss_odds_t > Date.now() - 60000))));
+      if (L.length && !document.hidden) { const m = L[i++ % L.length]; const ch = [];
+        if (!m.server || m.srv_src === 'pbp') { const d = await j(`https://api.sofascore1.com/api/v1/event/${m.ssid}/point-by-point`); const g = d.pointByPoint?.[0]?.games?.[0];
+          if (g && g.score && g.score.serving) { const sv = m.ss_same ? g.score.serving : 3 - g.score.serving; const s = m.sets; m.pbp_srv = sv; m.pbp_g = totG(s);
+            if (m.server !== sv) { m.server = sv; m.srv_src = 'pbp'; liveCalc(m); ch.push(m.id) } } }
+        if (!m.odds && !(m.ss_odds_t > Date.now() - 60000)) { m.ss_odds_t = Date.now(); const d = await j(`https://api.sofascore1.com/api/v1/event/${m.ssid}/odds/1/featured`);
+          const f = d.featured?.default; if (f && f.marketId === 1 && !f.suspended) { const c = {}; for (const x of f.choices || []) c[x.name] = frac(x.fractionalValue);
+            let a = c['1'], b = c['2']; if (!m.ss_same) [a, b] = [b, a]; if (a > 1 && b > 1) { m.odds = { best_a: +a.toFixed(2), best_b: +b.toFixed(2), n: 1, fair_a: (1 / a) / (1 / a + 1 / b) }; m.odds_src = 'Sofascore'; m.odds_table = [{ bookmaker: 'Sofascore (průměr trhu)', a: +a.toFixed(2), b: +b.toFixed(2) }]; liveCalc(m); ch.push(m.id) } } }
+        if (ch.length) onChange(ch) } ST.srcOk.sofaDetail = Date.now(); delete ST.srcOk.sofaDetailErr }
+    catch (e) { ST.srcOk.sofaDetailErr = String(e); wait = 5000 }
+    setTimeout(step, wait) }; setTimeout(step, 3000) }
+// ---------- záložní rozpis z prohlížeče (365scores allscores dnes + zítra) s predikcí LR, když export z Actions zastará ----------
+async function scheduleFallback(onChange) { const run = async () => { try {
+    const ch = []; const fmt = d => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    const t = new Date(), t2 = new Date(Date.now() + 864e5);
+    const d = await j(`https://webws.365scores.com/web/games/allscores/?appTypeId=5&langId=1&timezoneName=Europe%2FPrague&userCountryId=1&sports=3&startDate=${fmt(t)}&endDate=${fmt(t2)}`);
+    const comp = {}; for (const c of d.competitions || []) comp[c.id] = c;
+    for (const g of d.games || []) { const h = g.homeCompetitor || {}, a = g.awayCompetitor || {}; if (!h.name || !a.name || /\//.test(h.name) || g.statusGroup !== 2) continue;
+      const cn = (comp[g.competitionId]?.name || '') + ' ' + (g.competitionDisplayName || ''); const rk = (h.rankings || [])[0]?.name || (a.rankings || [])[0]?.name || '';
+      const gender = /WTA/.test(rk) || /women|wta/i.test(cn) ? 'W' : 'M'; if (findPair(gender, h.name, a.name)) continue;
+      const circ = /challenger/i.test(cn) ? 'Challenger' : /itf/i.test(cn) ? (gender === 'W' ? 'ITF ženy' : 'ITF muži') : gender === 'W' ? 'WTA' : 'ATP';
+      const m = { id: 's365-' + g.id, src: '365scores', circuit: circ, g: gender, tournament: (g.competitionDisplayName || cn).replace(/ - .*$/, ''), surface: 'Hard', round: g.stageName || '',
+        qual: /qualif/i.test(g.stageName || '') ? 1 : 0, ts: Date.parse(g.startTime) / 1000, status: 'upcoming', sets: [], winner: 0, best_of: 3, fs: null,
+        players: [{ name: h.name, country: '' }, { name: a.name, country: '' }], pids: [null, null], pred: null, odds: null };
+      m.day = dayOf(m.ts); await addPred(m); ST.all.push(m); ST.byId[m.id] = m; indexM(m); ch.push(m.id); ST.added = true }
+    ST.srcOk.schedule = Date.now(); if (ch.length) onChange(ch) } catch (e) { ST.srcOk.scheduleErr = String(e) } setTimeout(run, 300000) };
+  setTimeout(run, ST.generated && Date.now() / 1000 - ST.generated > 1800 ? 1000 : 60000) }
+function health() { const now = Date.now(); return Object.keys(SOURCES).concat(['sofaDetail']).map(k => { const ok = ST.srcOk[k], err = ST.srcOk[k + 'Err'];
+  return { k, state: err && !(ok > now - 10000) ? 'err' : ok > now - 15000 ? 'ok' : 'wait' } }) }
 const SOURCES = { sofascore: { fn: srcSofa, base: 1500 }, s365: { fn: src365, base: 2000 }, espn: { fn: srcESPN, base: 3000 } };
-function startSources(onChange) { for (const [k, S] of Object.entries(SOURCES)) { S.iv = S.base; S.lat = [];
+function startSources(onChange) { sofaDetail(onChange); scheduleFallback(onChange); for (const [k, S] of Object.entries(SOURCES)) { S.iv = S.base; S.lat = [];
   const run = async () => { const changed = new Set(), t0 = performance.now();
     try { await S.fn(changed); S.iv = S.base; ST.srcOk[k] = Date.now(); delete ST.srcOk[k + 'Err'] }
     catch (e) { S.iv = Math.min(S.iv * 2, 30000); ST.srcOk[k + 'Err'] = String(e) }   // backoff (429 i chyby)
