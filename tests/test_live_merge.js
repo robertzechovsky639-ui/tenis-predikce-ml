@@ -301,7 +301,7 @@ assert.ok(neu.every((m, i) => m.server === pbpSrv(i) && m.srvTrust === 3));
   assert.ok(app.includes('TenisLive.liveSplit(d.sets,d.status)'));
   assert.ok(app.includes('sp.done[k-1]'));
   assert.ok(stat.includes('TenisLive.liveSplit'));
-  assert.ok(sw.includes('tenis-v8'));
+  assert.ok(sw.includes('tenis-v9'));
   assert.ok(app.includes('predikce aktualizovány před'));
 }
 
@@ -328,8 +328,9 @@ assert.ok(neu.every((m, i) => m.server === pbpSrv(i) && m.srvTrust === 3));
   const live = { status: 'live', sets: [[6, 3], [6, 6]], pts: [5, 4], server: 1, srvTrust: 1, best_of: 3, _accAt: 1, _lk: 'stale' };
   assert.strictEqual(TL.applyLive(live, { status: 'live', sets: [[6, 3], [6, 6]], pts: [7, 5], pts_raw: [7, 5], server: 1, srvTrust: 2, src_pts: '365scores' }, { src: 's365', t0: 10 }, () => true), true);
   assert.strictEqual(JSON.stringify(live.sets), JSON.stringify([[6, 3], [7, 6]]));
-  assert.strictEqual(JSON.stringify(live.pts), JSON.stringify([0, 0]));
-  assert.strictEqual(JSON.stringify(live.pts_raw), JSON.stringify([0, 0]));
+  assert.strictEqual(live.status, 'finished');
+  assert.strictEqual(live.winner, 1);
+  assert.strictEqual(live.pts, null);
   assert.strictEqual(TL.liveSplit(live.sets, 'live').n, 3);
   assert.strictEqual(live._lk, '');
   assert.strictEqual(TL.applyLive(live, { status: 'live', sets: [[6, 3], [6, 6]], pts: [6, 6], server: 2, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 11 }, () => true), false);
@@ -346,7 +347,9 @@ assert.ok(neu.every((m, i) => m.server === pbpSrv(i) && m.srvTrust === 3));
   assert.strictEqual(JSON.stringify(dec.sets[2]), JSON.stringify([6, 6]));
   assert.strictEqual(TL.applyLive(dec, { status: 'live', sets: [[6, 4], [4, 6], [6, 6]], pts: [10, 8], server: 1, srvTrust: 1, src_pts: '365scores' }, { src: 's365', t0: 31 }, () => true), true);
   assert.strictEqual(JSON.stringify(dec.sets[2]), JSON.stringify([7, 6]));
-  assert.strictEqual(JSON.stringify(dec.pts), JSON.stringify([0, 0]));
+  assert.strictEqual(dec.status, 'finished');
+  assert.strictEqual(dec.winner, 1);
+  assert.strictEqual(dec.pts, null);
   const sofa = TL.parseSofaScore(
     { period1: 6, period2: 6, period2TieBreak: 5, point: '7' },
     { period1: 3, period2: 6, period2TieBreak: 7, point: '5' },
@@ -374,6 +377,59 @@ assert.ok(neu.every((m, i) => m.server === pbpSrv(i) && m.srvTrust === 3));
   assert.strictEqual(JSON.stringify(TL.map365Points(50, 30)), JSON.stringify([4, 3]));
   assert.strictEqual(JSON.stringify(TL.map365Points(4, 2)), JSON.stringify([4, 2]));
   assert.strictEqual(JSON.stringify(TL.map365Points(5, 4)), JSON.stringify([5, 4]));
+}
+
+assert.strictEqual(JSON.stringify(TL.displaySets([[6, 3], [6, 7]], 'live')), JSON.stringify([[6, 3], [6, 7], [0, 0]]));
+assert.strictEqual(JSON.stringify(TL.displaySets([[6, 3], [6, 7], [0, 0]], 'live')), JSON.stringify([[6, 3], [6, 7], [0, 0]]));
+assert.strictEqual(JSON.stringify(TL.displaySets([[6, 3], [5, 4]], 'live')), JSON.stringify([[6, 3], [5, 4]]));
+assert.strictEqual(JSON.stringify(TL.displaySets([[6, 4], [6, 3]], 'live', 3)), JSON.stringify([[6, 4], [6, 3]]));
+assert.strictEqual(JSON.stringify(TL.displaySets([[6, 4], [6, 3]], 'live', 5)), JSON.stringify([[6, 4], [6, 3], [0, 0]]));
+{
+  const over = { status: 'live', sets: [[4, 6]], pts: [0, 0], server: 1, srvTrust: 1, best_of: 3, _accAt: 1 };
+  assert.strictEqual(TL.applyLive(over, { status: 'live', sets: [[4, 6], [4, 6]], pts: [0, 0], src_pts: 'Sofascore' }, { src: 'sofascore', t0: 9 }, () => true), true);
+  assert.strictEqual(over.status, 'finished');
+  assert.strictEqual(over.winner, 2);
+  assert.strictEqual(JSON.stringify(over.sets), JSON.stringify([[4, 6], [4, 6]]));
+  assert.strictEqual(over.pts, null);
+  assert.strictEqual(TL.applyLive(over, { status: 'live', sets: [[4, 6], [3, 6]], src_pts: 'Sofascore' }, { src: 'sofascore', t0: 10 }, () => true), false);
+  assert.strictEqual(over.status, 'finished');
+  const slam = { status: 'live', sets: [[6, 4], [6, 3]], pts: [0, 0], best_of: 5, _accAt: 1 };
+  assert.strictEqual(TL.applyLive(slam, { status: 'live', sets: [[6, 4], [6, 3], [0, 0]], pts: [0, 0], src_pts: 'Sofascore' }, { src: 'sofascore', t0: 11 }, () => true), true);
+  assert.strictEqual(slam.status, 'live');
+  assert.strictEqual(JSON.stringify(slam.sets), JSON.stringify([[6, 4], [6, 3], [0, 0]]));
+}
+const pragueNoon = Date.UTC(2026, 9, 20, 12, 0, 0);
+assert.strictEqual(TL.dayOffset(Date.UTC(2026, 9, 20, 10, 0, 0) / 1000, pragueNoon), 0);
+assert.strictEqual(TL.dayOffset(Date.UTC(2026, 9, 20, 22, 30, 0) / 1000, pragueNoon), 1);
+assert.strictEqual(TL.pragueDate(1, pragueNoon).d, 21);
+assert.strictEqual(TL.fsLiveStatus(2, 0), 'live');
+assert.strictEqual(TL.fsLiveStatus(2, 8), 'finished');
+assert.strictEqual(TL.fsLiveStatus(2, 54), 'finished');
+assert.strictEqual(TL.fsLiveStatus(3, 0), 'finished');
+assert.strictEqual(TL.fsLiveStatus(5, 0), 'finished');
+const retired = { status: 'live', sets: [[6, 4], [3, 2]], pts: [1, 0], server: 1, srvTrust: 1, _accAt: 1 };
+assert.strictEqual(TL.applyLive(retired, { status: TL.fsLiveStatus(2, 8), sets: [[6, 4], [3, 2]], winner: 2, src_pts: 'Flashscore' }, { src: 'fs', t0: 3 }, () => true), true);
+assert.strictEqual(retired.status, 'finished');
+assert.strictEqual(retired.winner, 2);
+assert.strictEqual(TL.applyLive(retired, { status: 'live', sets: [[6, 4], [2, 2]], src_pts: 'Flashscore' }, { src: 'fs', t0: 4 }, () => true), false);
+assert.strictEqual(retired.status, 'finished');
+assert.strictEqual(JSON.stringify(retired.sets), JSON.stringify([[6, 4], [3, 2]]));
+const adv = { status: 'live', sets: [[1, 1]], pts: [4, 3], server: 1, srvTrust: 2, src_pts: '365scores', _accAt: 1 };
+assert.strictEqual(TL.applyLive(adv, { status: 'live', sets: [[1, 1]], pts: [3, 4], server: 2, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 5 }, () => true), false);
+assert.strictEqual(JSON.stringify(adv.pts), JSON.stringify([4, 3]));
+assert.strictEqual(adv.server, 1);
+{
+  const app = fs.readFileSync(path.join(root, 'web/app.js'), 'utf8');
+  const stat = fs.readFileSync(path.join(root, 'web/static.js'), 'utf8');
+  assert.ok(app.includes('TenisLive.displaySets'));
+  assert.ok(app.includes('TenisLive.pragueDate'));
+  assert.ok(app.includes('setInterval(upd,60000)'));
+  assert.ok(app.includes("timeZone:'Europe/Prague'"));
+  assert.ok(stat.includes('TenisLive.fsLiveStatus'));
+  assert.ok(stat.includes("src_pts: 'Flashscore'"));
+  const tick = stat.slice(stat.indexOf('async function fsTick'));
+  assert.ok(tick.length > 40);
+  assert.ok(!tick.includes('m.sets = sets'));
 }
 
 console.log('test_live_merge ok; old snapshots', oldUnique.size, 'stable after fix');

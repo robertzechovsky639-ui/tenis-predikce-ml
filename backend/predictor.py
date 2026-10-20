@@ -133,7 +133,7 @@ class Predictor:
             s["resid"][p] = (s["resid"].get(p, []) + [(day, res - ex)])[-60:]; s["last"][p] = max(day, s["last"].get(p, 0))
         s["h2h"][(w, l)] = s["h2h"].get((w, l), 0) + 1
 
-    def known_result(self, a, b, day, window=10):
+    def known_result(self, a, b, day, window=1):
         m = self.matches
         if not hasattr(self, "_recent_pairs"):
             r = m[m.date >= m.date.max() - __import__("pandas").Timedelta(days=60)]

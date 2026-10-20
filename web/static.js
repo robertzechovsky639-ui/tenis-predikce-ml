@@ -60,7 +60,7 @@ function indexM(m) { ST.byPair[m.g + pairKey(m.players[0].name, m.players[1].nam
 
 // ---------- data ----------
 const ST = { all: [], byId: {}, byPair: {}, players: null, lr: null, status: {}, lastLive: null, liveMs: null, srcOk: {} };
-function dayOf(ts) { const a = new Date(); a.setHours(0, 0, 0, 0); const b = new Date(ts * 1000); b.setHours(0, 0, 0, 0); return Math.round((b - a) / 864e5) }
+function dayOf(ts) { return TenisLive.dayOffset(ts); }
 function cacheLoad() { try { const d = JSON.parse(localStorage.tenisCache || 'null'); if (d && Date.now() / 1000 - d.generated < 86400) { applyData(d); ST.fromCache = true; ST.cacheHit = true; return true } } catch (e) { } return false }
 let _cT = 0; function cacheSave() { const now = Date.now(); if (now - _cT < 20000) return; _cT = now; const run = () => { try { localStorage.tenisCache = JSON.stringify({ generated: ST.generated, status: ST.status, matches: ST.all }) } catch (e) { } }; if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 2500 }); else setTimeout(run, 40); }
 function keepLive(m, o) {
@@ -77,7 +77,7 @@ async function loadStatic() { const r = await fetch('data/matches.json', { cache
   ST.fromCache = false; cacheSave(); _cT = 0 }
 function applyData(d) {
   ST.status = d.status; ST.generated = d.generated; ST.all = d.matches; ST.byId = {}; ST.byPair = {};
-  for (const m of ST.all) { m.day = m.status === 'live' ? 0 : dayOf(m.ts); ST.byId[m.id] = m; indexM(m) } }
+  for (const m of ST.all) { TenisLive.sealIfDecided(m); m.day = m.status === 'live' ? 0 : dayOf(m.ts); ST.byId[m.id] = m; indexM(m) } }
 function liveKey(m) { let s = ''; const sets = m.sets || []; for (let i = 0; i < sets.length; i++) s += sets[i][0] + '-' + sets[i][1] + ','; const pts = m.pts; const sp = TenisLive.liveSplit(sets, m.status); const cur = sp.cur ? sp.cur[0] + ':' + sp.cur[1] : ''; return m.pred + '|' + (m.best_of || 3) + '|' + m.g + '|' + (m.server || 0) + '|' + sp.n + '|' + cur + '|' + s + '|' + (pts ? pts[0] + ':' + pts[1] : '') + '|' + (m.odds ? m.odds.best_a + ':' + m.odds.best_b : ''); }
 function liveCalc(m) { if (m.status !== 'live' || m.pred == null) { m.live = null; m._lk = ''; return }
   const lk = liveKey(m); if (m.live && m._lk === lk) return; m._lk = lk;
@@ -106,6 +106,7 @@ function j(u, h, signal) { const w = !h && typeof Worker !== 'undefined' && poll
     w.postMessage({ id, url: new URL(u, location.href).href }); }); }
 function consider(m, upd, token, changed) {
   if (!m || !TenisLive.applyLive(m, upd, token, t => !t || !SOURCES[t.src] || SOURCES[t.src].cur === t)) return false;
+  if (m.status !== 'live' && m.ts) m.day = TenisLive.dayOffset(m.ts);
   liveCalc(m); if (changed) changed.add(m.id); return true;
 }
 // ---------- živé zdroje: každý má vlastní interval + backoff při 429/chybě ----------
@@ -117,15 +118,16 @@ async function srcESPN(changed, token, signal) {
     for (const ev of d.events || []) for (const gr of ev.groupings || []) { if (!/singles/.test(gr.grouping?.slug || '')) continue;
       for (const c of gr.competitions || []) { const cs = [...c.competitors].sort((a, b) => (a.order || 0) - (b.order || 0)); if (cs.length !== 2 || !cs[0].athlete || !cs[1].athlete) continue;
         const g = t === 'atp' ? 'M' : 'W'; const m = findPair(g, cs[0].athlete.displayName, cs[1].athlete.displayName); if (!m) continue;
-        const same = lastTok(cs[0].athlete.displayName) === lastTok(m.players[0].name); const st = c.status.type.state;
+        const same = lastTok(cs[0].athlete.displayName) === lastTok(m.players[0].name); const type = c.status.type || {}; const st = type.state; const name = type.name || '';
         const sets = (cs[0].linescores || []).map((s, i) => [s.value | 0, (cs[1].linescores || [])[i]?.value | 0]);
         const ss = same ? sets : sets.map(s => [s[1], s[0]]);
-        if (st === 'in') consider(m, { status: 'live', sets: ss }, token, changed);
-        else if (st === 'post') consider(m, { status: 'finished', sets: ss, winner: cs[0].winner ? (same ? 1 : 2) : cs[1].winner ? (same ? 2 : 1) : 0 }, token, changed); } } }))) }
+        const terminal = st === 'post' || /CANCELED|POSTPONED|WALKOVER|RETIRED|ABANDONED/.test(name);
+        if (st === 'in' && !terminal) consider(m, { status: 'live', sets: ss }, token, changed);
+        else if (terminal) consider(m, { status: 'finished', sets: ss, winner: cs[0].winner ? (same ? 1 : 2) : cs[1].winner ? (same ? 2 : 1) : 0 }, token, changed); } } }))) }
 async function src365(changed, token, signal) { const d = await j('https://webws.365scores.com/web/games/current/?appTypeId=5&langId=1&timezoneName=Europe%2FPrague&userCountryId=1&sports=3', null, signal);
   for (const g of d.games || []) { const h = g.homeCompetitor || {}, a = g.awayCompetitor || {}; const m = findPair('M', h.name, a.name) || findPair('W', h.name, a.name); if (!m) continue;
     const same = lastTok(h.name) === lastTok(m.players[0].name); const stg = {}; for (const s of g.stages || []) stg[s.name] = s;
-    const sets = Object.keys(stg).filter(k => /^Set \d/.test(k)).map(k => [stg[k].homeCompetitorScore | 0, stg[k].awayCompetitorScore | 0]).filter(s => s[0] >= 0 && s[1] >= 0);
+    const sets = Object.keys(stg).filter(k => /^Set \d/.test(k)).sort((a, b) => (+a.match(/\d+/)[0]) - (+b.match(/\d+/)[0])).map(k => [stg[k].homeCompetitorScore | 0, stg[k].awayCompetitorScore | 0]).filter(s => s[0] >= 0 && s[1] >= 0);
     const ss = same ? sets : sets.map(s => [s[1], s[0]]);
     if (g.statusGroup === 3) { const gm = stg.Game || {}; const raw = [gm.homeCompetitorScore ?? 0, gm.awayCompetitorScore ?? 0]; const p = TenisLive.map365Points(raw[0], raw[1]);
       const sv = TenisLive.reportedServer(h.inPossession ? 1 : a.inPossession ? 2 : null, same);
@@ -156,7 +158,7 @@ async function srcSofa(changed, token, signal) { const d = await j('https://api.
     if (st === 'inprogress') { const p = parsed.pts, raw = parsed.pts_raw; const pts = same ? p : [p[1], p[0]];
       const sv = sofaServer(e, same);
       consider(m, { status: 'live', sets: ss, pts, pts_raw: same ? raw : [raw[1], raw[0]], server: sv, srvTrust: sv ? 1 : 0, srv_src: sv ? 'firstToServe' : null, src_pts: 'Sofascore' }, token, changed); }
-    else if (st === 'finished') consider(m, { status: 'finished', sets: ss, winner: e.winnerCode ? (same ? e.winnerCode : 3 - e.winnerCode) : 0 }, token, changed); } }
+    else if (st === 'finished' || st === 'canceled' || st === 'cancelled' || st === 'postponed' || st === 'retired' || st === 'walkover' || st === 'abandoned') consider(m, { status: 'finished', sets: ss, winner: e.winnerCode ? (same ? e.winnerCode : 3 - e.winnerCode) : 0 }, token, changed); } }
 function indexPlayers() { if (ST.players && !ST.pIndex) ST.pIndex = TenisLive.buildIndex(ST.players); }
 function ensurePred(m) {
   if (!m || (m.pred != null && !m.pred_low)) return false;
@@ -211,8 +213,8 @@ async function sofaDetail(onChange) { let i = 0;
     setTimeout(step, wait) }; setTimeout(step, 3000) }
 // ---------- záložní rozpis z prohlížeče (365scores allscores dnes + zítra) s predikcí LR, když export z Actions zastará ----------
 async function scheduleFallback(onChange) { const run = async () => { try {
-    const ch = []; const fmt = d => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-    const t = new Date(), t2 = new Date(Date.now() + 864e5);
+    const ch = []; const fmt = p => `${String(p.d).padStart(2, '0')}/${String(p.m).padStart(2, '0')}/${p.y}`;
+    const t = TenisLive.pragueDate(0), t2 = TenisLive.pragueDate(1);
     const d = await j(`https://webws.365scores.com/web/games/allscores/?appTypeId=5&langId=1&timezoneName=Europe%2FPrague&userCountryId=1&sports=3&startDate=${fmt(t)}&endDate=${fmt(t2)}`);
     const comp = {}; for (const c of d.competitions || []) comp[c.id] = c;
     for (const g of d.games || []) { const h = g.homeCompetitor || {}, a = g.awayCompetitor || {}; if (!h.name || !a.name || /\//.test(h.name) || g.statusGroup !== 2) continue;
@@ -236,8 +238,8 @@ function sofaEventToMatch(e) { const H = e.homeTeam || {}, A = e.awayTeam || {};
     status: st === 'inprogress' ? 'live' : st === 'finished' ? 'finished' : 'upcoming', sets: [], winner: e.winnerCode || 0, best_of: 3, fs: null,
     players: [{ name: H.name, country: H.country?.alpha3 || '', ranking: H.ranking }, { name: A.name, country: A.country?.alpha3 || '', ranking: A.ranking }], pids: [null, null], pred: null, odds: null } }
 async function sofaSchedule(onChange) { const run = async () => { const ch = []; let ok = 0;
-    const iso = d => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}` };
-    const days = [iso(Date.now()), iso(Date.now() + 864e5)];
+    const iso = p => `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
+    const days = [iso(TenisLive.pragueDate(0)), iso(TenisLive.pragueDate(1))];
     await Promise.all(SS_CATS.flatMap(c => days.map(d => j(`https://api.sofascore1.com/api/v1/category/${c}/scheduled-events/${d}`).then(r => { ok++;
       for (const e of r.events || []) { if (e.status?.type !== 'notstarted') continue; const m0 = sofaEventToMatch(e); if (!m0) continue;
         const ex = findPair(m0.g, m0.players[0].name, m0.players[1].name);
@@ -286,9 +288,13 @@ async function fsTick() { try { const r = await fetch('https://global.flashscore
   for (const rec of t.split('~')) { const f = {}; for (const kv of rec.split('¬')) { const i = kv.indexOf('÷'); if (i > 0) f[kv.slice(0, i)] = kv.slice(i + 1) }
     if (!f.AA) continue; const m = ST.byId['fs-' + f.AA] || ST.all.find(x => x.fs && x.fs.id === f.AA); if (!m || m.src === 'ESPN' && m.server) continue;
     const sets = []; for (const [a, b] of [['BA', 'BB'], ['BC', 'BD'], ['BE', 'BF'], ['BG', 'BH'], ['BI', 'BJ']]) if (f[a] !== undefined && f[b] !== undefined && f[a] !== '') sets.push([+f[a], +f[b]]);
-    const stt = +f.AB; const before = JSON.stringify([m.status, m.sets]);
-    if (stt === 2) { m.status = 'live'; if (m.src !== 'ESPN' && sets.length) { const flip = m.fs && m.src === 'ESPN'; m.sets = sets } } else if (stt === 3 && m.status !== 'finished') { m.status = 'finished'; if (sets.length) m.sets = sets; m.winner = +f.AS || 0; m.pts = null; m.pts_raw = null }
-    if (JSON.stringify([m.status, m.sets]) !== before) { liveCalc(m); ch.push(m.id) } } return ch } catch (e) { ST.srcOk.fsErr = String(e); return [] } }
+    const status = TenisLive.fsLiveStatus(+f.AB, +f.AC);
+    if (status !== 'live' && status !== 'finished') continue;
+    const upd = { status, sets, src_pts: 'Flashscore' };
+    if (status === 'finished') upd.winner = +f.AS || 0;
+    if (!TenisLive.applyLive(m, upd, { src: 'fs', t0: Date.now() }, () => true)) continue;
+    if (m.status !== 'live' && m.ts) m.day = TenisLive.dayOffset(m.ts);
+    liveCalc(m); ch.push(m.id); } return ch } catch (e) { ST.srcOk.fsErr = String(e); return [] } }
 async function oddsFor(m) { if (!m.fs) return null; try { const d = (await j(`https://global.ds.lsapp.eu/odds/pq_graphql?_hash=oce&eventId=${m.fs.id}&projectId=2&geoIpCode=CZ&geoIpSubdivisionCode=CZ10`)).data.findOddsByEventId || {};
   const names = {}; for (const g of d.settings?.bookmakers || []) if (g.bookmaker) names[g.bookmaker.id] = g.bookmaker.name; const res = [];
   for (const b of d.odds || []) { if (b.bettingType !== 'HOME_AWAY' || b.bettingScope !== 'FULL_TIME') continue; const o = {}; for (const x of b.odds || []) o[x.eventParticipantId] = x;

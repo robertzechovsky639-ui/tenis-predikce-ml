@@ -2,6 +2,7 @@
 ITF muži/ženy, kvalifikace a zápasy ATP/WTA, které ESPN nemá). Kurzy: veřejný odds feed Flashscore (bez klíče)."""
 import datetime, json, re, unicodedata, urllib.request, zoneinfo
 import fs
+import scoremerge as SM
 
 TZ = zoneinfo.ZoneInfo("Europe/Prague")
 UA = {"User-Agent": "Mozilla/5.0"}
@@ -75,7 +76,10 @@ def merge(espn_list, fs_list):
             same = surname_key(f["players"][0]["name"]) == surname_key(m["players"][0]["name"])
             m["fs"] = dict(id=f["fs"]["id"], pids=f["fs"]["pids"] if same else f["fs"]["pids"][::-1])
             for p, q in zip(m["players"], f["players"] if same else f["players"][::-1]): p["slug"] = q.get("slug")
-            if m["status"] == "live" and len(f["sets"]) > len(m["sets"]): pass
+            if m["status"] == "live" and f.get("sets"):
+                fs_sets = f["sets"] if same else [list(reversed(s)) for s in f["sets"]]
+                if SM.cmp_score(m["sets"], None, fs_sets, None) > 0 and SM.norm_sets(fs_sets) != SM.norm_sets(m["sets"]):
+                    m["sets"] = [[int(a), int(b)] for a, b in fs_sets]
         m["surface"] = m["surface"] or "Hard"; out.append(m)
     out += [m for m in fs_list if m["id"] not in used]
     return out
@@ -119,8 +123,13 @@ def live365():
         h, a = g.get("homeCompetitor", {}), g.get("awayCompetitor", {})
         st = {s.get("name"): s for s in g.get("stages", [])}
         gm = st.get("Game") or {}
-        sets = [[int(s["homeCompetitorScore"]), int(s["awayCompetitorScore"])] for n, s in st.items()
-                if n.startswith("Set ") and s.get("homeCompetitorScore", -1) >= 0]
+        named = []
+        for n, s in st.items():
+            if not str(n).startswith("Set ") or s.get("homeCompetitorScore", -1) < 0: continue
+            try: num = int(str(n).split()[-1])
+            except ValueError: num = 0
+            named.append((num, [int(s["homeCompetitorScore"]), int(s["awayCompetitorScore"])]))
+        sets = [row for _, row in sorted(named)]
         raw_h, raw_a = gm.get("homeCompetitorScore", 0), gm.get("awayCompetitorScore", 0)
         pts = (map_point(raw_h), map_point(raw_a))
         try:

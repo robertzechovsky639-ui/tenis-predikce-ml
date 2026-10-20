@@ -33,13 +33,14 @@ function filt(list){return list.filter(m=>{
  if(S.favOnly&&!S.fav.has(m.id))return false;return true})}
 
 function scoreSig(m){const p=m.live?m.live.match:m.pred;return [m.status,JSON.stringify(m.sets),JSON.stringify(m.pts_raw||m.pts),m.server||0,m.winner||0,p==null?'':Math.round(p*100),m.pred_low?1:0,m.odds?(m.odds.best_a+','+m.odds.best_b):'',m.value||''].join('|')}
-function structSig(m){return [m.status,(m.sets||[]).length,m.pts_raw?1:0,m.pred!=null?1:0,m.odds?1:0,m.winner||0,m.server||0].join('|')}
+function shownSets(m){return TenisLive.displaySets(m.sets,m.status,m.best_of)}
+function structSig(m){return [m.status,shownSets(m).length,m.pts_raw?1:0,m.pred!=null?1:0,m.odds?1:0,m.winner||0,m.server||0].join('|')}
 function visKey(){if(S.view==='oblibene')return 'f:'+Object.values(S.data).flat().filter(m=>S.fav.has(m.id)).map(m=>m.id).join(',');if(S.view!=='zapasy')return 'v:'+S.view;return [S.day,S.circ,S.filt,S.favOnly?1:0,(filt(S.data[S.day]||[])).map(m=>m.id).join(',')].join('|')}
-function curSetIdx(m){return m.status==='live'&&m.sets.length&&!TenisLive.finishedSet(m.sets[m.sets.length-1])?m.sets.length-1:-1}
-function patchCard(el,m){const rows=el.querySelectorAll('.row');if(rows.length<2)return false;const curK=curSetIdx(m);
- for(let i=0;i<2;i++){const box=rows[i].querySelector('.sc');if(!box){if(m.sets.length)return false;continue}
-  const spans=box.querySelectorAll('span');let k=m.server===i+1?1:0;if(spans.length<k+m.sets.length+(m.pts_raw?1:0))return false;
-  for(let s=0;s<m.sets.length;s++,k++){const t=String(m.sets[s][i]);const cur=s===curK;if(spans[k].textContent!==t){spans[k].textContent=t;spans[k].className=cur?'cur flash':'';}}
+function curSetIdx(m){const s=shownSets(m);return m.status==='live'&&s.length&&!TenisLive.finishedSet(s[s.length-1])?s.length-1:-1}
+function patchCard(el,m){const rows=el.querySelectorAll('.row');if(rows.length<2)return false;const curK=curSetIdx(m);const sets=shownSets(m);
+ for(let i=0;i<2;i++){const box=rows[i].querySelector('.sc');if(!box){if(sets.length)return false;continue}
+  const spans=box.querySelectorAll('span');let k=m.server===i+1?1:0;if(spans.length<k+sets.length+(m.pts_raw?1:0))return false;
+  for(let s=0;s<sets.length;s++,k++){const t=String(sets[s][i]);const cur=s===curK;if(spans[k].textContent!==t){spans[k].textContent=t;spans[k].className=cur?'cur flash':'';}}
   if(m.pts_raw){const raw=m.pts_raw[i];const t=(raw==50||raw==='A')?'A':String(raw);if(spans[k].textContent!==t){spans[k].textContent=t;spans[k].className='cur flash';}}}
  const p=m.live?m.live.match:m.pred;const bar=el.querySelector('.bar');
  if(p!=null&&bar){const bs=bar.querySelectorAll('span');const a=pct(p),b=pct(1-p);if(bs[0]&&bs[0].textContent!==a)bs[0].textContent=a;if(bs[1]&&bs[1].textContent!==b)bs[1].textContent=b;const bi=bar.querySelector('i');if(bi)bi.style.width=(p*100)+'%';}
@@ -54,12 +55,12 @@ function paintList(ids){if(!ids||!ids.length)return;if(!_pq)_pq=new Set();for(co
  const run=()=>{_raf=0;const q=_pq;_pq=null;paintListNow([...q]);};
  _raf=(window.requestAnimationFrame||(f=>setTimeout(f,16)))(run);}
 function paintListNow(ids){const k=visKey();if(k!==S.vis){render();return}for(const id of ids||[]){const el=document.querySelector(`.m[data-id="${CSS.escape(id)}"]`);const m=(typeof ST!=='undefined'&&ST.byId&&ST.byId[id])||Object.values(S.data).flat().find(x=>x.id===id);if(el&&m)syncCard(el,m)}}
-function card(m){const fin=m.status==='finished',live=m.status==='live',curK=curSetIdx(m);
- const sc=i=>m.sets.map((s,k)=>`<span class="${k===curK?'cur':''}">${s[i]}</span>`).join('');
- const t=new Date(m.ts*1000).toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit'});
+function card(m){const fin=m.status==='finished',live=m.status==='live',curK=curSetIdx(m),sets=shownSets(m);
+ const sc=i=>sets.map((s,k)=>`<span class="${k===curK?'cur':''}">${s[i]}</span>`).join('');
+ const t=new Date(m.ts*1000).toLocaleTimeString('cs-CZ',{timeZone:'Europe/Prague',hour:'2-digit',minute:'2-digit'});
  const p=m.live?m.live.match:m.pred;
  const pl=(i)=>`<div class="row"><div class="pl ${m.winner===i+1?'w':''}"><span class="flag">${esc((m.players[i].country||'').slice(0,3).toUpperCase())}</span>${esc(shortN(m.players[i]))}${!m.pids[i]?' <span class="na">(bez historie)</span>':''}</div>
-   ${m.sets.length?`<div class="sc">${m.server===i+1?'<span style="color:#ffc84a">●</span>':''}${sc(i)}${m.pts_raw?`<span class="cur">${m.pts_raw[i]==50?'A':m.pts_raw[i]}</span>`:''}</div>`:i===0?`<div class="time">${t}</div>`:''}${i===0&&live?' <span class="livebadge">▶ živě</span>':''}</div>`;
+   ${sets.length?`<div class="sc">${m.server===i+1?'<span style="color:#ffc84a">●</span>':''}${sc(i)}${m.pts_raw?`<span class="cur">${m.pts_raw[i]==50?'A':m.pts_raw[i]}</span>`:''}</div>`:i===0?`<div class="time">${t}</div>`:''}${i===0&&live?' <span class="livebadge">▶ živě</span>':''}</div>`;
  let h=`<div class="m" data-id="${esc(m.id)}" data-st="${esc(structSig(m))}" data-sig="${esc(scoreSig(m))}">${pl(0)}${pl(1)}`;
  if(p!=null)h+=`<div class="lbl">${m.live?'PREDIKCE TEĎ':'PREDIKCE MODELU'}${m.pred_low?' <span class="low">nízká spolehlivost</span>':''}</div><div class="bar"><span>${pct(p)}</span><div class="t"><i style="width:${p*100}%"></i></div><span>${pct(1-p)}</span></div>`;
  else h+=`<div class="na" style="margin-top:6px">Predikce nedostupná – hráč není v historických datech</div>`;
@@ -67,10 +68,10 @@ function card(m){const fin=m.status==='finished',live=m.status==='live',curK=cur
  else if(!fin)h+=`<div class="odds"><span class="na">kurzy nedostupné</span></div>`;
  return h+'</div>'}
 
-function matchesView(fav){const today=new Date();let h='';
+function matchesView(fav){let h='';
  if(!fav){h+=`<h1>ZÁPASY <span class="pill">● ${(S.data[0]||[]).filter(m=>m.status==='live').length} živě</span></h1><div class="days">`;
-  for(let d=-2;d<=2;d++){const x=new Date(today);x.setDate(x.getDate()+d);const n=d===0?'Dnes':d===-1?'Včera':d===1?'Zítra':DN[x.getDay()];
-   h+=`<button data-day="${d}" class="${d===S.day?'on':''}"><b>${n}</b><small>${x.getDate()}. ${x.getMonth()+1}.</small></button>`}
+  for(let d=-2;d<=2;d++){const x=TenisLive.pragueDate(d);const n=d===0?'Dnes':d===-1?'Včera':d===1?'Zítra':DN[x.wd];
+   h+=`<button data-day="${d}" class="${d===S.day?'on':''}"><b>${n}</b><small>${x.d}. ${x.m}.</small></button>`}
   h+=`</div><div class="filters"><div class="sel"><label>OKRUHY</label><select id="circ">${[['all','Všechny okruhy'],['ATP','ATP'],['WTA','WTA'],['CH','Challenger / WTA 125'],['ITF muži','ITF muži'],['ITF ženy','ITF ženy']].map(([v,t])=>`<option value="${v}" ${S.circ===v?'selected':''}>${t}</option>`).join('')}</select></div>
   <div class="sel"><label>FILTR</label><select id="filt">${[['all','Vše'],['live','Živě'],['up','Nadcházející'],['fin','Dokončené'],['value','Value'],['qual','Kvalifikace'],['main','Hlavní soutěž']].map(([v,t])=>`<option value="${v}" ${S.filt===v?'selected':''}>${t}</option>`).join('')}</select></div>
   <button class="star ${S.favOnly?'on':''}" id="favt">${S.favOnly?'★':'☆'}</button></div>`}
@@ -125,7 +126,7 @@ function drawDetail(){const d=S.detail;if(d.status==='live'&&d.pred!=null&&typeo
  const setNo=d.status==='live'?(sp.n||1):0,gamesNow=d.status==='live'&&sp.cur?sp.cur.join('–'):'';const [tg,cl]=tagOf(d.circuit);const c=d.cards||[];
  const pp=(p,cd)=>`<div class="pp"><div class="av">${initials(p.name)}</div><b>${esc(shortN(p))}</b><small>${cd&&cd.rank?'#'+cd.rank:esc(p.country||'')}</small></div>`;
  let h=`<div class="dh"><button class="back" id="bk">‹</button><div class="tt"><b>${esc(d.tournament)}</b><small>${esc(d.circuit)} · ${surfCz[d.surface]||d.surface} · ${d.g==='M'?'Muži':'Ženy'}${d.qual?' · Kvalifikace':''}${d.round?' · '+esc(d.round):''}</small></div>${d.demo?'<span class="tag demo">DEMO</span>':''}<span class="tag ${cl}">${tg}</span></div>
- <div class="score">${pp(A,c[0])}<div class="mid"><div class="big">${sa}<span class="colon">:</span>${sb}</div><small>${gamesNow}</small><small>${d.status==='live'?`<span class="livebadge">▶ ${setNo}. set${d.pts_raw?' · Gem '+d.pts_raw.map(x=>x==50?'A':x).join(':'):''}${d.server?' · podává '+esc(sur(d.players[d.server-1])):''}</span>`:d.status==='finished'?'Konec':new Date(d.ts*1000).toLocaleString('cs-CZ',{weekday:'short',hour:'2-digit',minute:'2-digit'})}</small>
+ <div class="score">${pp(A,c[0])}<div class="mid"><div class="big">${sa}<span class="colon">:</span>${sb}</div><small>${gamesNow}</small><small>${d.status==='live'?`<span class="livebadge">▶ ${setNo}. set${d.pts_raw?' · Gem '+d.pts_raw.map(x=>x==50?'A':x).join(':'):''}${d.server?' · podává '+esc(sur(d.players[d.server-1])):''}</span>`:d.status==='finished'?'Konec':new Date(d.ts*1000).toLocaleString('cs-CZ',{timeZone:'Europe/Prague',weekday:'short',hour:'2-digit',minute:'2-digit'})}</small>
  <button class="star ${S.fav.has(d.id)?'on':''}" id="fv" style="margin-top:8px;height:38px">${S.fav.has(d.id)?'★':'☆'}</button></div>${pp(B,c[1])}</div>
  <div class="tabs">${[['prehled','Přehled'],['predikce','Predikce'],['kurzy','Kurzy'],['h2h','H2H'],['stat','Statistiky']].map(([k,t])=>`<button data-t="${k}" class="${S.tab===k?'on':''}">${t}</button>`).join('')}</div>`;
  h+=({prehled:tPrehled,predikce:tPred,kurzy:tKurzy,h2h:tH2H,stat:tStat}[S.tab])(d);el.innerHTML=h;
@@ -219,4 +220,5 @@ function staticLoop(){const onCh=ids=>{for(const id of ids||[]){const m=ST.byId[
   favEvents(ids)};
  startSources(onCh);
  const odd=async()=>{const l=ST.all.filter(m=>m.status==='live'&&m.fs);for(const m of l){if(document.hidden)break;await oddsFor(m);await new Promise(r=>setTimeout(r,700))}onCh(l.map(m=>m.id));setTimeout(odd,30000)};setTimeout(odd,8000);
- setInterval(async()=>{try{_st0=loadStatic();await _st0;onCh(ST.all.map(m=>m.id))}catch(e){}},300000)}
+ setInterval(async()=>{try{_st0=loadStatic();await _st0;onCh(ST.all.map(m=>m.id))}catch(e){}},300000);
+ setInterval(upd,60000)}

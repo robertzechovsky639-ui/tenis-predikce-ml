@@ -30,11 +30,14 @@ def archive_ok(path):
 def csv_ok(path):
     path = pathlib.Path(path)
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            line = f.readline()
+        text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False
-    return "fs_id" in line
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if len(lines) < 2 or "fs_id" not in lines[0]:
+        return False
+    # Useknutý poslední řádek (méně sloupců než hlavička) se nebere.
+    return lines[-1].count(",") == lines[0].count(",")
 
 
 def published_state_ok(obj):

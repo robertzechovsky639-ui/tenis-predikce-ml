@@ -53,9 +53,14 @@ jobs:
           R: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # Maže jen starší běh. Novější záloha (vyšší run id) musí přežít, když se dva exporty potkají.
+          ME="${{ github.run_id }}"
           gh cache list -R "$R" --key model-last- --limit 100 --json id,key --jq '.[] | "\(.id)\t\(.key)"' |
             while IFS="$(printf '\t')" read -r id key; do
-              [ "$key" = "$KEY" ] && continue
+              num="${key#model-last-}"
+              num="${num%%-*}"
+              case "$num" in ''|*[!0-9]*) continue ;; esac
+              [ "$num" -lt "$ME" ] || continue
               gh cache delete "$id" -R "$R" || true
             done
   deploy:

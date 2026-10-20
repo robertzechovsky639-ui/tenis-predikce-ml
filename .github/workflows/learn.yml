@@ -26,9 +26,28 @@ jobs:
       - run: python scripts/download_data.py
       - name: Aktuální model + průběžné výsledky
         env: { GH_TOKEN: "${{ github.token }}" }
+        run: python scripts/fetch_release.py
+      - name: Nechat jen nejnovější Sackmann cache
+        if: success()
+        continue-on-error: true
+        env: { GH_TOKEN: "${{ github.token }}", R: "${{ github.repository }}" }
         run: |
-          gh release download model -p model.tar.gz -R "${{ github.repository }}" && tar xzf model.tar.gz -C data/model
-          gh release download model -p live_results.csv -D data/raw -R "${{ github.repository }}" || true
+          python3 - << 'PY'
+          import os, subprocess
+          repo = os.environ["R"]
+          for prefix in ("sackmann-atp-", "sackmann-wta-"):
+              raw = subprocess.check_output(["gh", "cache", "list", "-R", repo, "--key", prefix, "--limit", "100", "--json", "id,key"], text=True)
+              import json
+              rows = []
+              for row in json.loads(raw or "[]"):
+                  tail = row["key"][len(prefix):]
+                  num = tail.split("-", 1)[0]
+                  if num.isdigit():
+                      rows.append((int(num), row["id"]))
+              rows.sort()
+              for _, cid in rows[:-1]:
+                  subprocess.call(["gh", "cache", "delete", str(cid), "-R", repo])
+          PY
       - name: Ingest + přetrénování s bránou kvality
         working-directory: backend
         run: python retrain.py

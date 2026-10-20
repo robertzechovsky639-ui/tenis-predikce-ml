@@ -8,6 +8,20 @@ import sources as S, features as F
 CSV = F.RAW / "live_results.csv"
 COLS = ["fs_id", "date", "g", "circuit", "is_qual", "surface", "tourney_name", "winner_name", "loser_name", "winner_slug", "loser_slug", "score"]
 
+def fs_id_set(values):
+    """Id zápasů už v CSV. Prázdné a NaN se nepočítají, jinak by další řádek bez id vypadl."""
+    out = set()
+    for v in values:
+        if v is None: continue
+        try:
+            if v != v: continue  # NaN
+        except Exception:
+            pass
+        s = str(v).strip()
+        if not s or s.lower() in ("nan", "none"): continue
+        out.add(s)
+    return out
+
 def fetch_finished(days=range(-7, 1)):
     rows = []; today = datetime.datetime.now(S.TZ).date()
     for d in days:

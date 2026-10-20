@@ -121,6 +121,42 @@
     if (s.length && s[s.length - 1][0] === 0 && s[s.length - 1][1] === 0) s.pop();
     return s;
   }
+  function pragueYMD(ms) {
+    const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(ms));
+    const g = t => +parts.find(p => p.type === t).value;
+    return { y: g('year'), m: g('month'), d: g('day') };
+  }
+  function dayOffset(ts, nowMs) {
+    // Kalendářní den v Praze, ne půlnoc prohlížeče. nowMs je jen pro testy.
+    const now = nowMs == null ? Date.now() : nowMs;
+    const a = pragueYMD(now), b = pragueYMD((+ts || 0) * 1000);
+    const utc = (p) => Date.UTC(p.y, p.m - 1, p.d);
+    return Math.round((utc(b) - utc(a)) / 864e5);
+  }
+  function pragueDate(offsetDays, nowMs) {
+    const now = nowMs == null ? Date.now() : nowMs;
+    const a = pragueYMD(now);
+    const utc = Date.UTC(a.y, a.m - 1, a.d + (offsetDays | 0));
+    const b = pragueYMD(utc);
+    b.wd = new Date(utc).getUTCDay();
+    return b;
+  }
+  function displaySets(sets, status, bestOf) {
+    // Mezi sety feed často nepošle 0:0. Seznam má ukázat stejný rozběhnutý set jako detail.
+    // Už rozhodnutý zápas (2:0 / 2:1) další 0:0 nedostane.
+    const s = normSets(sets).map(x => [x[0], x[1]]);
+    if (status === 'live' && s.length && finishedSet(s[s.length - 1]) && !matchWinner(s, bestOf)) s.push([0, 0]);
+    return s;
+  }
+  function fsLiveStatus(st, det) {
+    // Stejné kódy jako backend/sources.py: AB 1/2/3 a AC skreč / w.o. / zrušeno.
+    st = st | 0; det = det | 0;
+    if (det === 5 || det === 8 || det === 9 || det === 54 || st > 3) return 'finished';
+    if (st === 2) return 'live';
+    if (st === 3) return 'finished';
+    if (st === 1) return 'upcoming';
+    return null;
+  }
   function liveSplit(sets, status) {
     // Dohaný set (i 7:6 / 6:7) nepatří do aktuálního. Když je poslední dohraný a zápas žije, hraje se další od 0:0.
     const s = normSets(sets).map(x => [x[0], x[1]]);
@@ -353,7 +389,35 @@
     if ((+raw[0] === 50 || +raw[1] === 50) && !((p[0] === 4 && p[1] === 3) || (p[0] === 3 && p[1] === 4))) p = +raw[0] === 50 ? [4, 3] : [3, 4];
     return p;
   }
-  function applyLive(m, upd, token, fresh) {
+  function matchWinner(sets, bestOf) {
+    // Na dva vítězné sety (tři u pěti) je zápas konec, i když feed ještě říká „živě“.
+    const s = normSets(sets);
+    const played = s.length && s[s.length - 1][0] === 0 && s[s.length - 1][1] === 0 ? s.slice(0, -1) : s;
+    if (!played.length) return 0;
+    let a = 0, b = 0;
+    for (const g of played) {
+      if (!finishedSet(g)) return 0;
+      if ((g[0] | 0) > (g[1] | 0)) a++;
+      else if ((g[1] | 0) > (g[0] | 0)) b++;
+    }
+    const need = (((bestOf | 0) || 3) + 1) >> 1;
+    if (a >= need) return 1;
+    if (b >= need) return 2;
+    return 0;
+  }
+  function sealIfDecided(m) {
+    if (!m || m.status === 'finished') return false;
+    const w = matchWinner(m.sets, m.best_of);
+    if (!w) return false;
+    m.status = 'finished';
+    if (!m.winner) m.winner = w;
+    m.sets = dropOpen(m.sets);
+    m.pts = null; m.pts_raw = null; m.server = null; m.srvTrust = 0; m.srv_src = null;
+    m.tbFirst = null; m.tbReported = null; m.tbBlock = null;
+    m._lk = '';
+    return true;
+  }
+  function applyLiveCore(m, upd, token, fresh) {
     // Starší odpověď stejného polleru smí skóre jen posunout dopředu. Stejný nebo starší stav
     // (včetně podávajícího z méně spolehlivého zdroje) se zahodí, aby seznam nekmital.
     const closed = closeFinishedTb(upd.sets, upd.pts, m.best_of);
@@ -425,9 +489,13 @@
     m._lk = '';
     return true;
   }
+  function applyLive(m, upd, token, fresh) {
+    const ok = applyLiveCore(m, upd, token, fresh);
+    return sealIfDecided(m) || ok;
+  }
 
   root.TenisLive = {
     toks, isPlaceholder, relaxKeys, buildIndex, matchPlayer, eloFromRank, tourElo, fallbackPred,
-    normSets, pointRank, cmpScore, isDeuceReset, finishedSet, liveSplit, closeFinishedTb, tbWinner, tbTarget, parseSofaScore, map365Points, reportedServer, tbNow, tbView, applyLive, MIN_HISTORY, RANK_ELO, TOUR_PRIOR
+    normSets, pointRank, cmpScore, isDeuceReset, finishedSet, liveSplit, displaySets, dayOffset, pragueDate, fsLiveStatus, matchWinner, sealIfDecided, closeFinishedTb, tbWinner, tbTarget, parseSofaScore, map365Points, reportedServer, tbNow, tbView, applyLive, MIN_HISTORY, RANK_ELO, TOUR_PRIOR
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
