@@ -76,8 +76,8 @@ Lokálně trvale: `setsid nohup ./run_server.sh &` (automatický restart).
   365scores (body + podávající) 2 s, ESPN (ATP/WTA) 3 s; při chybě/429 se interval zdvojnásobuje až na 30 s. Živá pravděpodobnost
   Markovovým modelem v JS (`web/static.js`), překreslují se jen změněné karty, poslední data se drží v localStorage (okamžité první vykreslení).
   Živé kurzy (Flashscore odds feed) postupně ~1 zápas / 0,7 s a při otevření detailu.
-- **Předzápasové predikce, detaily, rozpis** generuje workflow `.github/workflows/pages.yml` (cron každých 10 min (měkký limit Pages ~10 nasazení/h) – GitHub
-  ho v praxi spouští se zpožděním; + ručně a při push). Model se bere z release `model` (`model.tar.gz`), nepřetrénovává se.
+- **Předzápasové predikce, detaily, rozpis** generuje workflow `.github/workflows/pages.yml` (cron každých 10 min (měkký limit Pages ~10 nasazení/h); když GitHub cron nespouští (stává se u nových repozitářů), job `keepalive` spustí export znovu po 8 min. Navíc telefon sám doplňuje rozpis ATP/WTA/Challenger z 365scores s predikcí logistickou regresí –
+  čerstvost tedy nezávisí jen na Actions; + ručně a při push). Model se bere z release `model` (`model.tar.gz`), nepřetrénovává se.
 - Vlastní predikce (Predikce, Chat) v prohlížeči používá logistickou regresi (LightGBM jen pro zápasy z exportu); H2H tam není.
 - Flashscore rozpis/skóre (Challenger, ITF) prohlížeč číst nemůže (CORS preflight), takže zápasy, které nemá ani ESPN ani 365scores,
   se aktualizují jen s během workflow.

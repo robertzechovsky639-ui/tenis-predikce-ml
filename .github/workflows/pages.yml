@@ -7,6 +7,7 @@ on:
     branches: [main]
 permissions:
   contents: read
+  actions: write
   pages: write
   id-token: write
 concurrency:
@@ -37,3 +38,17 @@ jobs:
     steps:
       - id: d
         uses: actions/deploy-pages@v4
+  # Záloha, když GitHub plánovač (cron) nespouští: jen pokud poslední plánovaný běh je starší než 30 min,
+  # počká 8 min a spustí export znovu (≈ 1 běh / 10 min, pod limitem Pages ~10 nasazení/h). Jakmile cron běží, smyčka se sama zastaví.
+  keepalive:
+    needs: deploy
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - env: { GH_TOKEN: "${{ github.token }}", R: "${{ github.repository }}" }
+        run: |
+          last=$(gh run list -R "$R" -w pages.yml -e schedule -L 1 --json createdAt --jq '.[0].createdAt // ""')
+          now=$(date +%s); age=999999; [ -n "$last" ] && age=$(( now - $(date -d "$last" +%s) ))
+          echo "poslední plánovaný běh: ${last:-nikdy} (${age}s)"
+          if [ "$age" -gt 1800 ]; then sleep 480; gh workflow run pages.yml -R "$R"; echo "znovu spuštěno"; else echo "cron funguje – bez zálohy"; fi
