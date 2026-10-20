@@ -109,18 +109,14 @@ async function src365(changed, token, signal) { const d = await j('https://webws
     const sets = Object.keys(stg).filter(k => /^Set \d/.test(k)).map(k => [stg[k].homeCompetitorScore | 0, stg[k].awayCompetitorScore | 0]).filter(s => s[0] >= 0 && s[1] >= 0);
     const ss = same ? sets : sets.map(s => [s[1], s[0]]);
     if (g.statusGroup === 3) { const gm = stg.Game || {}; let raw = [gm.homeCompetitorScore ?? 0, gm.awayCompetitorScore ?? 0]; let p = raw.map(x => PT[x | 0] ?? 0);
-      if (p.includes(4)) p = p[0] === 4 ? [4, 3] : [3, 4]; const sv = h.inPossession ? 1 : a.inPossession ? 2 : null;
-      consider(m, { status: 'live', sets: ss, pts: same ? p : [p[1], p[0]], pts_raw: same ? raw : [raw[1], raw[0]], server: sv && !same ? 3 - sv : sv, srvTrust: 2, srv_src: '365', src_pts: '365scores' }, token, changed); }
+      if (p.includes(4)) p = p[0] === 4 ? [4, 3] : [3, 4]; const sv = TenisLive.reportedServer(h.inPossession ? 1 : a.inPossession ? 2 : null, same);
+      consider(m, { status: 'live', sets: ss, pts: same ? p : [p[1], p[0]], pts_raw: same ? raw : [raw[1], raw[0]], server: sv, srvTrust: sv ? 2 : 0, srv_src: sv ? '365' : null, src_pts: '365scores' }, token, changed); }
     else if (g.statusGroup === 4) consider(m, { status: 'finished', sets: ss, winner: h.isWinner ? (same ? 1 : 2) : a.isWinner ? (same ? 2 : 1) : 0 }, token, changed); } }
 const SS_CIRC = { ATP: 'ATP', WTA: 'WTA', Challenger: 'Challenger', 'WTA 125': 'WTA 125', 'ITF Men': 'ITF muži', 'ITF Women': 'ITF ženy' };
 const SS_SURF = s => /clay/i.test(s || '') ? 'Clay' : /grass/i.test(s || '') ? 'Grass' : 'Hard';
-function sofaServer(e, sets, pts, same) {
-  if (!e.firstToServe) return null;
-  const tb = sets.length && sets[sets.length - 1][0] === 6 && sets[sets.length - 1][1] === 6;
-  const done = sets.slice(0, -1).reduce((a, s) => a + Math.min(s[0] + s[1], 13), 0) + (sets.length ? sets[sets.length - 1][0] + sets[sets.length - 1][1] : 0);
-  let sv = done % 2 === 0 ? e.firstToServe : 3 - e.firstToServe;
-  if (tb && pts) { const n = pts[0] + pts[1]; if (Math.floor((n + 1) / 2) % 2 === 1) sv = 3 - sv; }
-  return same ? sv : 3 - sv;
+function sofaServer(e, same) {
+  // firstToServe je aktuální podávající, ne ten z prvního gemu. Parita gemů ho vracela pořád na stejnou stranu.
+  return TenisLive.reportedServer(e && e.firstToServe, same);
 }
 async function srcSofa(changed, token, signal) { const d = await j('https://api.sofascore1.com/api/v1/sport/tennis/events/live', null, signal);
   const SPT = { '0': 0, '15': 1, '30': 2, '40': 3, 'A': 4 };
@@ -142,7 +138,7 @@ async function srcSofa(changed, token, signal) { const d = await j('https://api.
     if (st === 'inprogress') { let p = [SPT[hs.point] ?? (+hs.point || 0), SPT[as.point] ?? (+as.point || 0)];
       const tb = sets.length && sets[sets.length - 1][0] === 6 && sets[sets.length - 1][1] === 6; if (tb) p = [+hs.point || 0, +as.point || 0];
       const raw = [hs.point ?? 0, as.point ?? 0]; const pts = same ? p : [p[1], p[0]];
-      const sv = sofaServer(e, sets, p, same);
+      const sv = sofaServer(e, same);
       consider(m, { status: 'live', sets: ss, pts, pts_raw: same ? raw : [raw[1], raw[0]], server: sv, srvTrust: sv ? 1 : 0, srv_src: sv ? 'firstToServe' : null, src_pts: 'Sofascore' }, token, changed); }
     else if (st === 'finished') consider(m, { status: 'finished', sets: ss, winner: e.winnerCode ? (same ? e.winnerCode : 3 - e.winnerCode) : 0 }, token, changed); } }
 function indexPlayers() { if (ST.players && !ST.pIndex) ST.pIndex = TenisLive.buildIndex(ST.players); }
@@ -186,11 +182,11 @@ async function sofaDetail(onChange) { let i = 0;
       if (onScreen.size) L = L.filter(m => m.id === open || onScreen.has(m.id)); else L = L.slice(0, 4);
       if (L.length && !document.hidden) { const m = L[i++ % L.length]; const ch = [];
         if ((m.srvTrust || 0) < 3 && !m.no_pbp) { const d = await j(`https://api.sofascore1.com/api/v1/event/${m.ssid}/point-by-point`).catch(e => { if (/404/.test(e)) { m.no_pbp = true; return {} } throw e }); const g = d.pointByPoint?.[0]?.games?.[0];
-          if (g && g.score && g.score.serving) { const cur = m.sets && m.sets.length ? m.sets[m.sets.length - 1] : null;
+          if (g && g.score && g.score.scoring === -1) { const cur = m.sets && m.sets.length ? m.sets[m.sets.length - 1] : null;
             const hs = g.score.homeScore | 0, as = g.score.awayScore | 0;
             const aligned = cur && hs === (m.ss_same ? cur[0] : cur[1]) && as === (m.ss_same ? cur[1] : cur[0]);
-            if (aligned) { const sv = m.ss_same ? g.score.serving : 3 - g.score.serving;
-              if (consider(m, { status: m.status, sets: m.sets, pts: m.pts, server: sv, srvTrust: 3, srv_src: 'pbp', src_pts: m.src_pts }, { src: 'sofaDetail', t0: Date.now() }, null)) ch.push(m.id); } } }
+            const sv = aligned ? TenisLive.reportedServer(g.score.serving, m.ss_same) : null;
+            if (sv && consider(m, { status: m.status, sets: m.sets, pts: m.pts, server: sv, srvTrust: 3, srv_src: 'pbp', src_pts: m.src_pts }, { src: 'sofaDetail', t0: Date.now() }, null)) ch.push(m.id); } }
         if (!m.odds && !(m.ss_odds_t > Date.now() - 60000)) { m.ss_odds_t = Date.now(); const d = await j(`https://api.sofascore1.com/api/v1/event/${m.ssid}/odds/1/featured`).catch(e => { if (/404/.test(e)) return {}; throw e });
           const f = d.featured?.default; if (f && f.marketId === 1 && !f.suspended) { const c = {}; for (const x of f.choices || []) c[x.name] = frac(x.fractionalValue);
             let a = c['1'], b = c['2']; if (!m.ss_same) [a, b] = [b, a]; if (a > 1 && b > 1) { m.odds = { best_a: +a.toFixed(2), best_b: +b.toFixed(2), n: 1, fair_a: (1 / a) / (1 / a + 1 / b) }; m.odds_src = 'Sofascore'; m.odds_t = Date.now(); m.odds_table = [{ bookmaker: 'Sofascore (průměr trhu)', a: +a.toFixed(2), b: +b.toFixed(2) }]; liveCalc(m); ch.push(m.id) } } }

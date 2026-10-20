@@ -139,6 +139,23 @@
     const a = +oldPts[0] || 0, b = +oldPts[1] || 0, c = +newPts[0] || 0, d = +newPts[1] || 0;
     return a === 3 && b === 3 && Math.min(c, d) >= 3 && Math.max(c, d) >= 4 && Math.abs(c - d) === 1;
   }
+  function reportedServer(raw, same) {
+    // 1 = domácí daného zdroje, 2 = host. Bez hlášeného podávajícího null — žádný odhad z parity gemů.
+    const sv = +raw;
+    if (sv !== 1 && sv !== 2) return null;
+    return same ? sv : 3 - sv;
+  }
+  function takeServer(m, upd) {
+    const sv = upd.server;
+    if (sv !== 1 && sv !== 2) return false;
+    const trust = upd.srvTrust || 0;
+    if (trust < (m.srvTrust || 0)) return false;
+    if (m.server === sv && (m.srvTrust || 0) >= trust) return false;
+    m.server = sv;
+    m.srvTrust = trust;
+    if (upd.srv_src) m.srv_src = upd.srv_src;
+    return true;
+  }
   function applyLive(m, upd, token, fresh) {
     // Starší odpověď stejného polleru smí skóre jen posunout dopředu. Stejný nebo starší stav
     // (včetně podávajícího z méně spolehlivého zdroje) se zahodí, aby seznam nekmital.
@@ -174,9 +191,7 @@
         m.status = 'finished'; if (upd.winner) m.winner = upd.winner;
         m.pts = null; m.pts_raw = null; m.server = null; m.srvTrust = 0; changed = true;
       }
-      if (upd.server && (upd.srvTrust || 0) > (m.srvTrust || 0)) {
-        m.server = upd.server; m.srvTrust = upd.srvTrust; m.srv_src = upd.srv_src || m.srv_src; changed = true;
-      }
+      if (upd.status !== 'finished' && takeServer(m, upd)) changed = true;
       if (changed) m._accAt = now;
       return changed;
     }
@@ -184,14 +199,13 @@
       m.sets = cleanSets(upd.sets);
       m.pts = upd.pts ? upd.pts.slice() : null;
       m.pts_raw = upd.pts ? (upd.pts_raw || null) : null;
-      m.server = upd.server || null;
-      m.srvTrust = upd.server ? (upd.srvTrust || 0) : 0;
-      m.srv_src = upd.srv_src || null;
+      // Nový gem: starý podávající už neplatí. Bez nového hlášení raději žádný než odhad.
+      if (upd.server === 1 || upd.server === 2) {
+        m.server = upd.server; m.srvTrust = upd.srvTrust || 0; m.srv_src = upd.srv_src || null;
+      } else { m.server = null; m.srvTrust = 0; m.srv_src = null; }
     } else {
       if (upd.pts) { m.pts = upd.pts.slice(); if (upd.pts_raw) m.pts_raw = upd.pts_raw; }
-      if (upd.server && (upd.srvTrust || 0) > (m.srvTrust || 0)) {
-        m.server = upd.server; m.srvTrust = upd.srvTrust || 0; m.srv_src = upd.srv_src || m.srv_src;
-      }
+      takeServer(m, upd);
     }
     if (upd.status) m.status = upd.status;
     if (upd.winner) m.winner = upd.winner;
@@ -203,6 +217,6 @@
 
   root.TenisLive = {
     toks, isPlaceholder, relaxKeys, buildIndex, matchPlayer, eloFromRank, tourElo, fallbackPred,
-    normSets, pointRank, cmpScore, isDeuceReset, applyLive, MIN_HISTORY, RANK_ELO, TOUR_PRIOR
+    normSets, pointRank, cmpScore, isDeuceReset, reportedServer, applyLive, MIN_HISTORY, RANK_ELO, TOUR_PRIOR
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
