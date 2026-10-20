@@ -7,22 +7,31 @@ const MK = (() => {
   function game(p, a = 0, b = 0) { const memo = {}; const g = (x, y) => { const k = x * 50 + y; if (k in memo) return memo[k];
       let r; if (x >= 4 && x - y >= 2) r = 1; else if (y >= 4 && y - x >= 2) r = 0; else if (x >= 3 && y >= 3 && x === y) r = p * p / (p * p + (1 - p) * (1 - p));
       else r = p * g(x + 1, y) + (1 - p) * g(x, y + 1); return memo[k] = r }; return g(a, b) }
-  function tiebreak(pa, pb, a = 0, b = 0, aFirst = true) { const memo = {}; const t = (x, y) => { const k = x * 100 + y; if (k in memo) return memo[k]; let r;
-      if (x >= 7 && x - y >= 2) r = 1; else if (y >= 7 && y - x >= 2) r = 0;
-      else if (x >= 6 && y >= 6 && x === y) { const w = pa * (1 - pb), l = (1 - pa) * pb; r = w + l > 0 ? w / (w + l) : .5 }
+  function onFirst(pts) { const n = (pts[0] | 0) + (pts[1] | 0); return Math.floor((n + 1) / 2) % 2 === 0 }
+  function aServedFirst(aNow, pts) { return onFirst(pts) ? aNow : !aNow }
+  function tiebreak(pa, pb, a = 0, b = 0, aFirst = true, target = 7) { const memo = {}; const t = (x, y) => { const k = x * 100 + y; if (k in memo) return memo[k]; let r;
+      if (x >= target && x - y >= 2) r = 1; else if (y >= target && y - x >= 2) r = 0;
+      else if (x >= target - 1 && y >= target - 1 && x === y) { const w = pa * (1 - pb), l = (1 - pa) * pb; r = w + l > 0 ? w / (w + l) : .5 }
       else { const n = x + y; let as = Math.floor((n + 1) / 2) % 2 === 0; if (!aFirst) as = !as; const q = as ? pa : 1 - pb; r = q * t(x + 1, y) + (1 - q) * t(x, y + 1) }
       return memo[k] = r }; return t(a, b) }
-  function setP(pa, pb, ga = 0, gb = 0, aSrv = true, pts = [0, 0]) { const ha = game(pa), hb = game(pb), memo = {};
+  function setP(pa, pb, ga = 0, gb = 0, aSrv = true, pts = [0, 0], tbTo = 7) { const ha = game(pa), hb = game(pb), memo = {};
     const s = (x, y, as) => { const k = x * 100 + y * 2 + (as ? 1 : 0); if (k in memo) return memo[k]; let r;
-      if ((x >= 6 && x - y >= 2) || x === 7) r = 1; else if ((y >= 6 && y - x >= 2) || y === 7) r = 0; else if (x === 6 && y === 6) r = tiebreak(pa, pb, 0, 0, as);
+      if ((x >= 6 && x - y >= 2) || x === 7) r = 1; else if ((y >= 6 && y - x >= 2) || y === 7) r = 0; else if (x === 6 && y === 6) r = tiebreak(pa, pb, 0, 0, as, tbTo);
       else { const q = as ? ha : 1 - hb; r = q * s(x + 1, y, !as) + (1 - q) * s(x, y + 1, !as) } return memo[k] = r };
-    if (ga === 6 && gb === 6) return tiebreak(pa, pb, pts[0], pts[1], aSrv);
+    if (ga === 6 && gb === 6) return tiebreak(pa, pb, pts[0], pts[1], aServedFirst(aSrv, pts), tbTo);
     if (pts[0] || pts[1]) { const q = aSrv ? game(pa, pts[0], pts[1]) : 1 - game(pb, pts[1], pts[0]); return q * s(ga + 1, gb, !aSrv) + (1 - q) * s(ga, gb + 1, !aSrv) }
     return s(ga, gb, aSrv) }
-  function matchP(pa, pb, sa, sb, ga, gb, aSrv, pts, bo) { const need = Math.floor(bo / 2) + 1; if (sa >= need) return 1; if (sb >= need) return 0;
+  function matchP(pa, pb, sa, sb, ga, gb, aSrv, pts, bo, tbTo = 7, matchTb = false) { const need = Math.floor(bo / 2) + 1; if (sa >= need) return 1; if (sb >= need) return 0;
     const ps = (setP(pa, pb, 0, 0, true) + setP(pa, pb, 0, 0, false)) / 2; const memo = {};
     const m = (x, y) => { if (x >= need) return 1; if (y >= need) return 0; const k = x * 10 + y; if (k in memo) return memo[k]; return memo[k] = ps * m(x + 1, y) + (1 - ps) * m(x, y + 1) };
-    const c = setP(pa, pb, ga, gb, aSrv, pts); return c * m(sa + 1, sb) + (1 - c) * m(sa, sb + 1) }
+    const inTb = matchTb || (ga === 6 && gb === 6);
+    const curOf = s => matchTb ? tiebreak(pa, pb, pts[0], pts[1], aServedFirst(s, pts), tbTo) : setP(pa, pb, ga, gb, s, pts, tbTo);
+    if (!inTb) { const c = curOf(aSrv); return c * m(sa + 1, sb) + (1 - c) * m(sa, sb + 1) }
+    const aFirst = aServedFirst(aSrv, pts), nextDecider = sa + sb + 1 >= bo - 1;
+    const psNext = setP(pa, pb, 0, 0, !aFirst, [0, 0], nextDecider ? 10 : 7); const memo2 = {};
+    const m2 = (x, y, useNext) => { if (x >= need) return 1; if (y >= need) return 0; const k = (x * 10 + y) * 2 + (useNext ? 1 : 0); if (k in memo2) return memo2[k];
+      const pset = useNext ? psNext : ps; return memo2[k] = pset * m2(x + 1, y, false) + (1 - pset) * m2(x, y + 1, false) };
+    const c = curOf(aSrv); return c * m2(sa + 1, sb, true) + (1 - c) * m2(sa, sb + 1, true) }
   const spCache = new Map();
   function serveProbs(p, female, bo) {
     const key = p + '|' + (female ? 1 : 0) + '|' + bo;
@@ -31,10 +40,13 @@ const MK = (() => {
     for (let i = 0; i < 30; i++) { const d = (lo + hi) / 2; if (matchP(base + d, base - d, 0, 0, 0, 0, true, [0, 0], bo) < p) lo = d; else hi = d }
     const d = (lo + hi) / 2; const out = [base + d, base - d]; spCache.set(key, out); return out;
   }
-  function live(p, done, cur, pts, server, female, bo) { const [pa, pb] = serveProbs(p, female, bo); const sa = done.filter(s => s[0] > s[1]).length, sb = done.length - sa;
+  function live(p, done, cur, pts, server, female, bo, tbTo, matchTb) { const [pa, pb] = serveProbs(p, female, bo); const sa = done.filter(s => s[0] > s[1]).length, sb = done.length - sa;
     const srv = server ? [server === 1] : [true, false]; const avg = f => srv.reduce((t, s) => t + f(s), 0) / srv.length;
-    const tb = cur[0] === 6 && cur[1] === 6;
-    return { match: avg(s => matchP(pa, pb, sa, sb, cur[0], cur[1], s, pts, bo)), set: avg(s => setP(pa, pb, cur[0], cur[1], s, pts)),
+    const tb = !!(matchTb || (cur[0] === 6 && cur[1] === 6));
+    let target = tbTo;
+    if (target == null) target = done.length >= (bo || 3) - 1 ? 10 : 7;
+    const setOf = s => matchTb ? tiebreak(pa, pb, pts[0], pts[1], aServedFirst(s, pts), target) : setP(pa, pb, cur[0], cur[1], s, pts, target);
+    return { match: avg(s => matchP(pa, pb, sa, sb, cur[0], cur[1], s, pts, bo || 3, target, !!matchTb)), set: avg(setOf),
       game: server && !tb ? (server === 1 ? game(pa, pts[0], pts[1]) : 1 - game(pb, pts[1], pts[0])) : null, serve_a: pa, serve_b: pb, hold_a: game(pa), hold_b: game(pb) } }
   return { game, setP, matchP, serveProbs, live };
 })();
@@ -69,9 +81,17 @@ function applyData(d) {
 function liveKey(m) { let s = ''; const sets = m.sets || []; for (let i = 0; i < sets.length; i++) s += sets[i][0] + '-' + sets[i][1] + ','; const pts = m.pts; return m.pred + '|' + (m.best_of || 3) + '|' + m.g + '|' + (m.server || 0) + '|' + s + '|' + (pts ? pts[0] + ':' + pts[1] : '') + '|' + (m.odds ? m.odds.best_a + ':' + m.odds.best_b : ''); }
 function liveCalc(m) { if (m.status !== 'live' || m.pred == null) { m.live = null; m._lk = ''; return }
   const lk = liveKey(m); if (m.live && m._lk === lk) return; m._lk = lk;
-  let done = m.sets.slice(0, -1), cur = m.sets.length ? m.sets[m.sets.length - 1] : [0, 0];
-  if (cur && ((Math.max(...cur) >= 6 && Math.abs(cur[0] - cur[1]) >= 2) || Math.max(...cur) === 7)) { done = m.sets; cur = [0, 0] }
-  const pts = m.pts || [0, 0]; const l = MK.live(m.pred, done, cur, pts, m.server, m.g === 'W', m.best_of);
+  const pts = m.pts || [0, 0]; const bo = m.best_of || 3;
+  const view = TenisLive.tbView(m.sets, pts, bo, m.match_tb);
+  let done, cur, matchTb = false, tbTo = 7;
+  if (view && view.kind === 'match') { done = (m.sets || []).slice(); cur = [0, 0]; matchTb = true; tbTo = view.target; }
+  else {
+    done = (m.sets || []).slice(0, -1); cur = m.sets && m.sets.length ? m.sets[m.sets.length - 1] : [0, 0];
+    if (view) tbTo = view.target;
+    else if (cur && ((Math.max(cur[0], cur[1]) >= 6 && Math.abs(cur[0] - cur[1]) >= 2) || Math.max(cur[0], cur[1]) === 7)) { done = (m.sets || []).slice(); cur = [0, 0]; }
+    if (done.length >= bo - 1) tbTo = 10;
+  }
+  const l = MK.live(m.pred, done, cur, pts, m.server, m.g === 'W', m.best_of, tbTo, matchTb);
   l.note = m.server ? 'stav bod po bodu (365scores, v prohlížeči): sety, gemy, body a podávající' : 'body/podání nejsou k dispozici – stav = sety a gemy, podávající neznámý (průměr)';
   m.live = l; m.value = null; if (m.odds && m.odds_t > Date.now() - 90000) { const p = l.match; m.value = p * m.odds.best_a - 1 > .05 ? 'A' : (1 - p) * m.odds.best_b - 1 > .05 ? 'B' : null } }
 async function jDirect(u, h, signal) { const r = await fetch(u, { headers: h || {}, cache: 'no-store', signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json() }

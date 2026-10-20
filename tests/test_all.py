@@ -20,6 +20,42 @@ def test_markov_basics():
     assert unknown["game"] is None and serving["game"] is not None
     assert abs(unknown["match"] - (serving["match"] + returning["match"]) / 2) < 1e-9
 
+def test_tiebreak_rotation_and_super():
+    # První bod podává hráč, který je na řadě, pak se střídá po dvou. Stejně v supertiebreaku.
+    seq = [(0, 0), (1, 0), (1, 1), (2, 1), (2, 2), (3, 2), (8, 8), (9, 8)]
+    assert [markov.tb_server(1, p) for p in seq] == [1, 2, 2, 1, 1, 2, 1, 2]
+    assert markov.tb_server(2, (1, 0)) == 1
+    pa, pb = 0.66, 0.58
+    # server v live() je podávající aktuálního bodu, ne automaticky ten z prvního bodu
+    p0 = markov.set_prob(pa, pb, 6, 6, True, (0, 0))
+    won = markov.set_prob(pa, pb, 6, 6, False, (1, 0))
+    lost = markov.set_prob(pa, pb, 6, 6, False, (0, 1))
+    assert abs(p0 - (pa * won + (1 - pa) * lost)) < 1e-9
+    stuck = markov.live(0.55, [], (6, 6), (1, 0), 1)
+    right = markov.live(0.55, [], (6, 6), (1, 0), 2)
+    assert stuck["set"] != right["set"]
+    # rozhodující set: tiebreak na 10. 8:6 ještě není konec, 7:4 v prvním setu ano.
+    mid = markov.live(0.55, [(6, 4), (4, 6)], (6, 6), (8, 6), 1, best_of=3)
+    assert 0 < mid["set"] < 1
+    assert abs(mid["set"] - markov.set_prob(mid["pa"], mid["pb"], 6, 6, True, (8, 6), tb_to=10)) < 1e-9
+    assert markov.live(0.55, [], (6, 6), (7, 4), 1)["set"] == 1
+    over = markov.tiebreak(pa, pb, 10, 8, True, target=10)
+    assert over == 1
+    # Samostatný supertiebreak (místo rozhodujícího setu) a přepnutí podání změní šanci.
+    mtb_a = markov.live(0.55, [(6, 4), (4, 6)], (0, 0), (5, 4), 1, best_of=3, match_tb=True)
+    mtb_b = markov.live(0.55, [(6, 4), (4, 6)], (0, 0), (5, 4), 2, best_of=3, match_tb=True)
+    assert mtb_a["game"] is None and mtb_b["set"] != mtb_a["set"]
+    assert 0 < mtb_a["set"] < 1
+    # Po tiebreaku podává příjemce prvního bodu. Na 0:0 je šance setu pro oba podávající stejná,
+    # ale rozhodující set se hraje tiebreakem na 10 a to šanci zápasu změní.
+    got = markov.match_prob(pa, pb, 1, 0, 6, 6, True, (0, 0), 3, tb_to=7)
+    cur = markov.set_prob(pa, pb, 6, 6, True, (0, 0), tb_to=7)
+    ps_next = markov.set_prob(pa, pb, 0, 0, False, tb_to=10)  # A podával první bod → další set podává B, na 10
+    expect = cur * 1 + (1 - cur) * ps_next
+    assert abs(got - expect) < 1e-9
+    ordinary = cur * 1 + (1 - cur) * markov.set_prob(pa, pb, 0, 0, False, tb_to=7)
+    assert abs(got - ordinary) > 1e-6
+
 def test_no_leakage():
     d = pd.DataFrame(dict(date=pd.to_datetime(["2020-01-06"] * 2), tourney_id=["t", "t"], rord=[9, 10], match_num=[1, 2],
         wid=["M1", "M1"], lid=["M2", "M2"], winner_name=["A", "A"], loser_name=["B", "B"], surface=["Hard"] * 2, g=["M"] * 2,
