@@ -57,7 +57,7 @@ function liveCalc(m) { if (m.status !== 'live' || m.pred == null) { m.live = nul
   if (cur && ((Math.max(...cur) >= 6 && Math.abs(cur[0] - cur[1]) >= 2) || Math.max(...cur) === 7)) { done = m.sets; cur = [0, 0] }
   const pts = m.pts || [0, 0]; const l = MK.live(m.pred, done, cur, pts, m.server, m.g === 'W', m.best_of);
   l.note = m.server ? 'stav bod po bodu (365scores, v prohlížeči): sety, gemy, body a podávající' : 'body/podání nejsou k dispozici – stav = sety a gemy, podávající neznámý (průměr)';
-  m.live = l; if (m.odds) { const p = l.match; m.value = p * m.odds.best_a - 1 > .05 ? 'A' : (1 - p) * m.odds.best_b - 1 > .05 ? 'B' : null } }
+  m.live = l; m.value = null; if (m.odds && m.odds_t > Date.now() - 90000) { const p = l.match; m.value = p * m.odds.best_a - 1 > .05 ? 'A' : (1 - p) * m.odds.best_b - 1 > .05 ? 'B' : null } }
 async function j(u, h) { const r = await fetch(u, { headers: h || {}, cache: 'no-store' }); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json() }
 // ---------- živé zdroje: každý má vlastní interval + backoff při 429/chybě ----------
 function mkUpd(changed) { return (m, f) => { const before = JSON.stringify([m.status, m.sets, m.pts, m.server, m.winner]); f(m);
@@ -122,7 +122,7 @@ async function sofaDetail(onChange) { let i = 0;
             if (m.server !== sv) { m.server = sv; m.srv_src = 'pbp'; liveCalc(m); ch.push(m.id) } } }
         if (!m.odds && !(m.ss_odds_t > Date.now() - 60000)) { m.ss_odds_t = Date.now(); const d = await j(`https://api.sofascore1.com/api/v1/event/${m.ssid}/odds/1/featured`);
           const f = d.featured?.default; if (f && f.marketId === 1 && !f.suspended) { const c = {}; for (const x of f.choices || []) c[x.name] = frac(x.fractionalValue);
-            let a = c['1'], b = c['2']; if (!m.ss_same) [a, b] = [b, a]; if (a > 1 && b > 1) { m.odds = { best_a: +a.toFixed(2), best_b: +b.toFixed(2), n: 1, fair_a: (1 / a) / (1 / a + 1 / b) }; m.odds_src = 'Sofascore'; m.odds_table = [{ bookmaker: 'Sofascore (průměr trhu)', a: +a.toFixed(2), b: +b.toFixed(2) }]; liveCalc(m); ch.push(m.id) } } }
+            let a = c['1'], b = c['2']; if (!m.ss_same) [a, b] = [b, a]; if (a > 1 && b > 1) { m.odds = { best_a: +a.toFixed(2), best_b: +b.toFixed(2), n: 1, fair_a: (1 / a) / (1 / a + 1 / b) }; m.odds_src = 'Sofascore'; m.odds_t = Date.now(); m.odds_table = [{ bookmaker: 'Sofascore (průměr trhu)', a: +a.toFixed(2), b: +b.toFixed(2) }]; liveCalc(m); ch.push(m.id) } } }
         if (ch.length) onChange(ch) } ST.srcOk.sofaDetail = Date.now(); delete ST.srcOk.sofaDetailErr }
     catch (e) { ST.srcOk.sofaDetailErr = String(e); wait = 5000 }
     setTimeout(step, wait) }; setTimeout(step, 3000) }
@@ -164,7 +164,7 @@ async function oddsFor(m) { if (!m.fs) return null; try { const d = (await j(`ht
   const names = {}; for (const g of d.settings?.bookmakers || []) if (g.bookmaker) names[g.bookmaker.id] = g.bookmaker.name; const res = [];
   for (const b of d.odds || []) { if (b.bettingType !== 'HOME_AWAY' || b.bettingScope !== 'FULL_TIME') continue; const o = {}; for (const x of b.odds || []) o[x.eventParticipantId] = x;
     const a = +o[m.fs.pids[0]]?.value, bb = +o[m.fs.pids[1]]?.value; if (a > 1 && bb > 1) res.push({ bookmaker: names[b.bookmakerId] || '#' + b.bookmakerId, a, b: bb }) }
-  if (res.length) { const ba = Math.max(...res.map(x => x.a)), bb = Math.max(...res.map(x => x.b)); m.odds = { best_a: ba, best_b: bb, n: res.length, fair_a: (1 / ba) / (1 / ba + 1 / bb) }; m.odds_table = res; liveCalc(m) }
+  if (res.length) { const ba = Math.max(...res.map(x => x.a)), bb = Math.max(...res.map(x => x.b)); m.odds = { best_a: ba, best_b: bb, n: res.length, fair_a: (1 / ba) / (1 / ba + 1 / bb) }; m.odds_table = res; m.odds_t = Date.now(); liveCalc(m) }
   return res } catch (e) { return null } }
 // ---------- vlastní predikce (logistická regrese v prohlížeči) ----------
 async function ensurePlayers() { if (!ST.players) { [ST.players, ST.lr] = await Promise.all([j('data/players.json'), j('data/lr.json')]) } }
@@ -180,7 +180,7 @@ async function staticApi(u) { const url = new URL(u, location.href); const q = u
   if (path === '/api/status') return ST.status;
   if (path === '/api/model') return j('data/model.json');
   if (path.startsWith('/api/match/')) { const id = decodeURIComponent(path.slice(11)); const m = ST.byId[id]; let det = {};
-    try { det = await j('data/m/' + encodeURIComponent(id) + '.json') } catch (e) { }
+    if (!/^(ss|s365)-/.test(id)) try { det = await j('data/m/' + encodeURIComponent(id) + '.json') } catch (e) { }
     if (m && m.status !== 'finished') await oddsFor(m);
     const o = Object.assign(det, m || {}); if (m && m.odds_table) { o.odds_table = m.odds_table; o.odds_status = 'ok' } return o }
   if (path === '/api/players') { await ensurePlayers(); const t = norm(q.get('q')); return ST.players.filter(p => norm(p[1]).includes(t)).sort((a, b) => b[6] - a[6]).slice(0, 20).map(p => ({ id: p[0], name: p[1], g: p[0][0], matches: p[6], elo: p[2], rank: p[4] })) }

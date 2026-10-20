@@ -13,7 +13,7 @@ function saveFav(){localStorage.fav=JSON.stringify([...S.fav])}
 let _st0=null;async function load(day){if(STATIC){if(!_st0&&cacheLoad()){for(let d=-2;d<=2;d++)S.data[d]=ST.all.filter(m=>m.day===d);render();upd()}_st0=_st0||loadStatic();await _st0}const d=await api('/api/matches?day='+day);S.data[day]=d.matches;S.status=d.status;render();upd()}
 function upd(){const s=S.status||{};if(STATIC){const lv=ST.all.filter(m=>m.status==='live').length;s.live=lv;const H={sofascore:'Sofascore',s365:'365scores',espn:'ESPN',sofaDetail:'detail'};const hd=health().map(h=>`<span class="hd ${h.state}" title="${H[h.k]}">${H[h.k]}</span>`).join('');
   const age=ST.generated?Math.round((Date.now()/1000-ST.generated)/60):null;
-  $('#upd').innerHTML=`<span class="g"></span>${lv?'Živě':'Bez živých zápasů'} · ${lv} · predikce před ${age??'–'} min<div class="hrow">${hd}</div>`;return;
+  $('#upd').innerHTML=`<span class="g"></span>${lv?lv+' živě':'Bez živých zápasů'} · predikce aktualizovány před ${age??'–'} min<div class="hrow">${hd}</div>`;return;
   $('#upd').innerHTML=`<span class="g"></span>${lv?'Živě':'Bez živých zápasů'} · skóre ${ST.lastLive?ST.lastLive.toLocaleTimeString('cs-CZ'):'–'} (${ST.liveMs??'–'} ms) · predikce ${ST.generated?new Date(ST.generated*1000).toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit'}):'–'}`;return}
  const l=S.lat.length?` · zpoždění push ${Math.round(S.lat.at(-1))} ms`:'';
  $('#upd').innerHTML=(s.demo?'<span class="tag demo">DEMO</span> ':'<span class="g"></span>')+`${s.live?'Živě':'Bez živých zápasů'} · aktualizováno ${s.last_poll?new Date(s.last_poll).toLocaleTimeString('cs-CZ'):'–'}${l}`}
@@ -81,15 +81,15 @@ async function render(){const v=$('#view');let h='';
  v.dataset.v=S.view;v.innerHTML=h;bind()}
 
 function pickBox(inp,list,cb){let t;inp.oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{const r=inp.value.length>1?await api('/api/players?q='+encodeURIComponent(inp.value)):[];
- list.innerHTML=r.slice(0,6).map(p=>`<div class="fac" data-id="${p.id}"><span>${esc(p.name)} <small class="na">${p.g==='M'?'muži':'ženy'}</small></span><span class="na">Elo ${p.elo}${p.rank?' · #'+p.rank:''}</span></div>`).join('');
- list.querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>{inp.value=x.textContent.split('  ')[0];inp.dataset.id=x.dataset.id;list.innerHTML='';cb&&cb(x.dataset.id)})},250)}}
+ list.innerHTML=r.slice(0,6).map(p=>`<div class="fac" data-id="${p.id}" data-name="${esc(p.name)}"><span>${esc(p.name)} <small class="na">${p.g==='M'?'muži':'ženy'}</small></span><span class="na">Elo ${p.elo}${p.rank?' · #'+p.rank:''}</span></div>`).join('');
+ list.querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>{inp.value=x.dataset.name;inp.dataset.id=x.dataset.id;list.innerHTML='';cb&&cb(x.dataset.id)})},250)}}
 
 function bind(){document.querySelectorAll('.days button').forEach(b=>b.onclick=()=>{S.day=+b.dataset.day;if(!S.data[S.day])load(S.day);render()});
  $('#circ')&&($('#circ').onchange=e=>{S.circ=e.target.value;render()});$('#filt')&&($('#filt').onchange=e=>{S.filt=e.target.value;render()});
  $('#favt')&&($('#favt').onclick=()=>{S.favOnly=!S.favOnly;render()});
  document.querySelectorAll('.m[data-id]').forEach(x=>x.onclick=()=>openDetail(x.dataset.id));
  if(S.view==='predikce'){let surf='Hard';const go=async()=>{const a=$('#pa').dataset.id,b=$('#pb').dataset.id;if(!a||!b)return;
-   const r=await api(`/api/predict?a=${a}&b=${b}&surface=${surf}`);$('#pres').innerHTML=`<div class="big2" style="margin-top:12px">${pct(r.p)} : ${pct(1-r.p)}</div><div class="note">Elo ${pct(r.elo_p)} · H2H ${r.h2h.join(':')} · fér kurzy ${f2(1/r.p)} / ${f2(1/(1-r.p))}</div>${r.factors.map(f=>`<div class="fac"><span>${f.label}</span><span class="${f.favors}">${f.favors==='A'?r.cards[0].name:r.cards[1].name}</span></div>`).join('')}`};
+   const r=await api(`/api/predict?a=${a}&b=${b}&surface=${surf}`);$('#pres').innerHTML=`<div class="big2" style="margin-top:12px">${pct(r.p)} : ${pct(1-r.p)}</div><div class="note">Elo ${pct(r.elo_p)} · ${r.h2h[0]==='?'?'H2H v této verzi nepočítáme':'H2H '+r.h2h.join(':')} · fér kurzy ${f2(1/r.p)} / ${f2(1/(1-r.p))}</div>${r.factors.map(f=>`<div class="fac"><span>${f.label}</span><span class="${f.favors}">${f.favors==='A'?r.cards[0].name:r.cards[1].name}</span></div>`).join('')}`};
   pickBox($('#pa'),$('#pal'),go);pickBox($('#pb'),$('#pbl'),go);document.querySelectorAll('#psurf button').forEach(b=>b.onclick=()=>{surf=b.dataset.s;document.querySelectorAll('#psurf button').forEach(x=>x.classList.toggle('on',x===b));go()})}
  if(S.view==='hraci'){const i=$('#ps');let t;i.oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{const r=i.value.length>1?await api('/api/players?q='+encodeURIComponent(i.value)):[];
   $('#plist').innerHTML='<div class="box">'+(r.map(p=>`<div class="fac"><span>${esc(p.name)} <small class="na">${p.g==='M'?'ATP/ITF':'WTA/ITF'}</small></span><span class="na">Elo ${p.elo} · ${p.rank?'#'+p.rank:'bez žebř.'} · ${p.matches} záp.</span></div>`).join('')||'<div class="note">Nic nenalezeno</div>')+'</div>'},250)}}
@@ -124,7 +124,7 @@ function tPred(d){if(!d.cards||!d.cards[0]||!d.cards[1])return '<div class="box 
  <div class="box"><h3>SROVNÁNÍ</h3><table><tr><th></th><th>${esc(nA(d)).toUpperCase()}</th><th>${esc(nB(d)).toUpperCase()}</th></tr>
  <tr><td>Elo celkové</td><td>${a.elo}</td><td>${b.elo}</td></tr><tr><td>Elo – ${surfCz[d.surface]}</td><td>${a.selo}</td><td>${b.selo}</td></tr><tr><td>Žebříček</td><td>${a.rank??'–'}</td><td>${b.rank??'–'}</td></tr>
  <tr><td>Forma (výhry z posl. 10)</td><td>${a.form}</td><td>${b.form}</td></tr><tr><td>Zápasů celkem (od 1968)</td><td>${a.matches}</td><td>${b.matches}</td></tr><tr><td>Poslední zápas v datech</td><td>${a.last||'–'}</td><td>${b.last||'–'}</td></tr></table></div>`}
-function tKurzy(d){const o=d.odds_table;if(!o.length)return `<div class="box note">Kurzy nedostupné: ${esc(d.odds_status)}. Kurzy nevymýšlíme.</div>`;
+function tKurzy(d){const o=d.odds_table;if(!o.length)return `<div class="box note">Pro tento zápas teď žádný veřejný zdroj (Flashscore, Sofascore) kurzy nenabízí. Kurzy nevymýšlíme – jakmile se objeví, zobrazí se tu automaticky.</div>`;
  const p=d.live?d.live.match:d.pred;let h=`<div class="box"><h3>KURZY SÁZKOVÝCH KANCELÁŘÍ</h3><table><tr><th>SÁZKOVKA</th><th>${esc(nA(d))}</th><th>${esc(nB(d))}</th><th>MARŽE</th></tr>`;
  for(const x of o){const m=1/x.a+1/x.b-1;h+=`<tr><td>${esc(x.bookmaker)}</td><td>${f2(x.a)}</td><td>${f2(x.b)}</td><td>${(m*100).toFixed(1)} %</td></tr>`}
  const ba=Math.max(...o.map(x=>x.a)),bb=Math.max(...o.map(x=>x.b)),fa=(1/ba)/((1/ba)+(1/bb));
