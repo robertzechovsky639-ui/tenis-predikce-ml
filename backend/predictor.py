@@ -4,6 +4,7 @@ import warnings
 import numpy as np, pandas as pd, lightgbm as lgb
 warnings.filterwarnings("ignore", message="X does not have valid feature names")
 import features as F
+import fallback as FB
 
 MD = F.ROOT / "data" / "model"
 NAMES_CZ = {"elo_d": "Elo celkové", "selo_d": "Elo na povrchu", "elo_p": "Elo očekávání", "logrank_d": "Žebříček",
@@ -35,6 +36,7 @@ class Predictor:
             if len(t) >= 2:
                 k3 = (g, "".join(t[:-1]), t[-1][0])
                 self.sur.setdefault(k3, pid)
+        self.rx = FB.build_relax(self.s["name"])
 
     def find(self, g, full=None, short=None):
         """full = 'Jiri Lehecka' / slug 'lehecka-jiri', short = 'Lehecka J.' (Flashscore) nebo 'J. Lehecka' (ESPN)."""
@@ -49,6 +51,17 @@ class Predictor:
                 if not m: return None
                 ini, sur = m.group(1).lower(), "".join(toks(m.group(2)))
             return self.sur.get((g, sur, ini))
+        return None
+
+    def find_any(self, g, full=None, short=None):
+        """Přísná shoda, a jen když ta nic nenašla, jednoznačné příjmení + iniciála (nízká spolehlivost řeší volající)."""
+        r = self.find(g, full, short)
+        if r:
+            return r
+        for cand in (full, short):
+            hit = FB.match_relax(self.rx, g, cand)
+            if hit:
+                return hit
         return None
 
     def card(self, pid, surf):

@@ -1,0 +1,109 @@
+{
+ "baseline_test": {
+  "accuracy": 0.7047,
+  "log_loss": 0.5605,
+  "brier": 0.1907,
+  "n": 153987
+ },
+ "baseline_iters": 380,
+ "chosen": "surf+form+w6",
+ "chosen_val": {
+  "accuracy": 0.7048,
+  "log_loss": 0.5615,
+  "brier": 0.1911,
+  "n": 68077
+ },
+ "chosen_test": {
+  "accuracy": 0.7041,
+  "log_loss": 0.5606,
+  "brier": 0.1908,
+  "n": 153987
+ },
+ "chosen_iters": 300,
+ "keep": false,
+ "board": [
+  {
+   "name": "base",
+   "val": {
+    "accuracy": 0.7044,
+    "log_loss": 0.562,
+    "brier": 0.1913,
+    "n": 68077
+   },
+   "iters": 526
+  },
+  {
+   "name": "surf",
+   "val": {
+    "accuracy": 0.7045,
+    "log_loss": 0.5618,
+    "brier": 0.1912,
+    "n": 68077
+   },
+   "iters": 468
+  },
+  {
+   "name": "surf+form",
+   "val": {
+    "accuracy": 0.7049,
+    "log_loss": 0.5617,
+    "brier": 0.1911,
+    "n": 68077
+   },
+   "iters": 466
+  },
+  {
+   "name": "surf+form+w6",
+   "val": {
+    "accuracy": 0.7048,
+    "log_loss": 0.5615,
+    "brier": 0.1911,
+    "n": 68077
+   },
+   "iters": 458
+  },
+  {
+   "name": "surf+form+leaves",
+   "val": {
+    "accuracy": 0.7044,
+    "log_loss": 0.5616,
+    "brier": 0.1911,
+    "n": 68077
+   },
+   "iters": 721
+  }
+ ],
+ "features": [
+  "elo_d",
+  "selo_d",
+  "elo_p",
+  "logrank_d",
+  "form_d",
+  "fat_d",
+  "inact_d",
+  "h2h_d",
+  "exp_d",
+  "age_d",
+  "unc_d",
+  "level",
+  "best_of",
+  "surf_clay",
+  "surf_grass",
+  "is_qual",
+  "female",
+  "spw_d",
+  "rpw_d",
+  "selo_p",
+  "bel_d",
+  "sform_d",
+  "form5_d",
+  "sh2h_d"
+ ],
+ "half_life": 6.0,
+ "params": {
+  "learning_rate": 0.05,
+  "num_leaves": 63,
+  "min_data_in_leaf": 200,
+  "lambda_l2": 1.0
+ }
+}

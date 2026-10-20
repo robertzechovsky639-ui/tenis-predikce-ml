@@ -2,6 +2,7 @@
 import asyncio, concurrent.futures as cf, datetime, json, os, time, random
 import sources as S, markov
 from predictor import Predictor, F
+import fallback as FB, scoremerge as SM
 
 LIVE_POLL = float(os.environ.get("TENIS_LIVE_POLL", 3))      # s, když běží živé zápasy
 IDLE_POLL = float(os.environ.get("TENIS_IDLE_POLL", 30))
@@ -18,19 +19,32 @@ class Service:
         self.pred_cache = {}; self.l365 = {}
 
     # ---------- obohacení ----------
+    def _resolve(self, m, fn):
+        g = m["g"]; out = []
+        for p in m["players"]:
+            slug = (p.get("slug") or "").replace("-", " ")
+            out.append((slug and fn(g, slug, p.get("short"))) or fn(g, p["name"], p.get("short")))
+        return out
+
     def enrich(self, m):
         g = m["g"]
-        ids = [self.P.find(g, p.get("slug") and p["slug"].replace("-", " ") or p["name"], p.get("short")) or
-               self.P.find(g, p["name"], p.get("short")) for p in m["players"]]
-        m["pids"] = ids
+        strict = self._resolve(m, self.P.find)
+        ids = strict if all(strict) else self._resolve(m, self.P.find_any)
         lvl = 3 if any(s in m["tournament"].lower() for s in ("australian open", "roland", "french open", "wimbledon", "us open")) else LVL.get(m["circuit"], 2)
-        if all(ids):
-            k = (ids[0], ids[1], m["surface"], lvl, m["best_of"], m["qual"])
+
+        def predict(a, b):
+            k = (a, b, m["surface"], lvl, m["best_of"], m["qual"])
             if k not in self.pred_cache:
-                self.pred_cache[k] = self.P.predict(ids[0], ids[1], m["surface"], lvl, m["best_of"], m["qual"], int(g == "W"))
-            pr = self.pred_cache[k]; m["pred"] = round(pr["p"], 4); m["pred_lr"] = round(pr["p_lr"], 4)
+                self.pred_cache[k] = self.P.predict(a, b, m["surface"], lvl, m["best_of"], m["qual"], int(g == "W"))
+            return self.pred_cache[k]
+
+        info = FB.prediction_for(m, strict, ids, lambda pid: self.P.s["elo"].get(pid, 1500.0),
+                                  lambda pid: self.P.s["n"].get(pid, 0), predict)
+        m["pids"] = info["pids"]; m["pred"] = info["pred"]; m["pred_lr"] = info["pred_lr"]
+        if info["pred_low"]:
+            m["pred_low"] = True; m["pred_note"] = info["pred_note"]
         else:
-            m["pred"] = None
+            m.pop("pred_low", None); m.pop("pred_note", None)
         m["live"] = None
         if m["status"] == "live" and m["pred"] is not None:
             done, cur = (m["sets"][:-1], m["sets"][-1]) if m["sets"] else ([], [0, 0])
@@ -97,16 +111,23 @@ class Service:
             seen.add(m["id"])
             dd = (datetime.datetime.fromtimestamp(m["ts"], S.TZ).date() - today).days
             if m["status"] == "live": dd = 0
-            m["pts"] = None; m["server"] = None
+            m["pts"] = None; m["server"] = None; m["srv_trust"] = 0
             if m["status"] == "live":
                 x = self.l365.get(frozenset(S.surname_key(p["name"]) for p in m["players"]))
                 if x:
                     same = x["home"] == S.surname_key(m["players"][0]["name"])
-                    m["pts"] = list(x["pts"] if same else x["pts"][::-1]); m["pts_raw"] = x["pts_raw"] if same else x["pts_raw"][::-1]
-                    m["server"] = x["server"] if same or x["server"] is None else 3 - x["server"]
+                    pts = list(x["pts"] if same else x["pts"][::-1])
                     sets = x["sets"] if same else [s[::-1] for s in x["sets"]]
-                    if sum(map(sum, sets)) >= sum(map(sum, m["sets"])): m["sets"] = sets
-                    m["src_live"] = "365scores"
+                    rel = SM.cmp_score(m["sets"], None, sets, pts)
+                    if rel > 0 or rel == 0:
+                        m["pts"] = pts; m["pts_raw"] = x["pts_raw"] if same else x["pts_raw"][::-1]
+                        m["server"] = x["server"] if same or x["server"] is None else 3 - x["server"]
+                        m["srv_trust"] = 2
+                        if rel > 0 and SM.norm_sets(sets) != SM.norm_sets(m["sets"]):
+                            m["sets"] = [[int(a), int(b)] for a, b in sets if a is not None and b is not None and int(a) >= 0 and int(b) >= 0]
+                        m["src_live"] = "365scores"
+            prev = self.by_id.get(m["id"])
+            if prev: SM.keep_score(prev, m)
             if dd in days: days[dd].append(m)
         if not any(days.values()) or self.demo:
             days = self.demo_days(); self.status["demo"] = True

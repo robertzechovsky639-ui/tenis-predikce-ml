@@ -33,6 +33,7 @@ Testy: `.venv/bin/python -m pytest tests` · Screenshoty: `.venv/bin/python scri
 - LightGBM = výsledná pravděpodobnost (symetrizovaná), logistická regrese = vysvětlitelné faktory.
 - Chronologické rozdělení: trénink 1970–2023, test 2024–2026 (153 987 zápasů). Přesnost / log loss / Brier:
   lightgbm: 70.35 % / 0.5617 / 0.1912 | logreg: 70.16 % / 0.5650 / 0.1924 | elo: 69.26 % / 0.5745 / 0.1964 | rank: 65.92 % / 0.6391 / 0.2235
+- Novější kandidáti (směs povrchového Elo s celkovým, forma na povrchu a za 5 zápasů, H2H na povrchu, váha novějších zápasů s poločasem 6 let, hlubší stromy) se vybíraly jen na roce 2023 a jednou změřily na testu 2024+. Nejlepší z nich log loss nezlepšil (0,5606 proti 0,5605 u současných příznaků na stejném mirroru, n = 153 987), takže se nepoužil. Izotonická kalibrace z dřívějšího experimentu log loss zhoršila.
 - Živě: z předzápasové pravděpodobnosti se bisekcí najdou pravděpodobnosti bodu na podání a Markovův model počítá gem/tiebreak/set/zápas ze stavu.
 
 ## Zdroje živých dat (zdarma, bez klíčů)
@@ -43,7 +44,7 @@ Testy: `.venv/bin/python -m pytest tests` · Screenshoty: `.venv/bin/python scri
 | 365scores veřejný JSON | body v gemu + podávající pro živé zápasy | hlavně ATP/WTA/Challenger; ITF často chybí → tam jen sety/gemy |
 | Flashscore odds feed | kurzy na vítěze od sázkových kanceláří (CZ) | jen zápasy, které feed má; jinak „kurzy nedostupné“ |
 
-Nic se nevymýšlí: chybí-li kurzy nebo historie hráče, aplikace to napíše. Demo data (jen při výpadku všech zdrojů nebo TENIS_DEMO=1) jsou označena DEMO.
+Chybí-li kurzy, aplikace to napíše. Chybí-li historie hráče, predikce se odhadne ze žebříčku nebo z úrovně turnaje a je označená jako nízká spolehlivost; zápas, kde jsou oba hráči v datech, dál počítá model beze změny. Demo data (jen při výpadku všech zdrojů nebo TENIS_DEMO=1) jsou označena DEMO.
 
 ## Omezení
 - Historická data končí 2. 6. 2026 (stav mirroru) – Elo/forma nezahrnují posledních ~4,5 měsíce; únava/neaktivita se počítají k tomuto datu.
@@ -51,6 +52,7 @@ Nic se nevymýšlí: chybí-li kurzy nebo historie hráče, aplikace to napíše
 - Chat je lokální asistent bez jazykového modelu („Sinner vs Alcaraz antuka“ → predikce).
 - Zpoždění: backend se dotazuje každé 3 s, cyklus (stažení ESPN+Flashscore+365scores, výpočet) ~0,5–0,7 s, SSE push do prohlížeče < 2 ms.
   Celkem tedy 0,5–4 s od změny ve zdroji; samotné zdroje mohou mít vlastní zpoždění (CDN cache).
+  Na GitHub Pages bere skóre prohlížeč: počítač Sofascore 1,5 s, 365scores 2,5 s, ESPN 4 s (začátky rozložené), telefon 2,2 / 5 / 8 s a detail jen u zápasů na obrazovce. JSON se čte mimo hlavní vlákno a seznam se překreslí jen když se změní skóre.
 
 ## Nasazení (veřejná adresa)
 Dockerfile při buildu stáhne data, natrénuje model (~5 min, potřeba ~4 GB RAM) a spustí server na portu `$PORT` (výchozí 7860).
