@@ -175,15 +175,12 @@ function liveTipsBox(d){const L=d.live;if(!L)return '';const pa=L.serve_a??L.pa,
  const bo=d.best_of||3,pts=d.pts||[0,0],view=TenisLive.tbView(d.sets,pts,bo,d.match_tb);let done,cur,matchTb=false,tbTo=null;
  if(view&&view.kind==='match'){done=TenisLive.liveSplit(d.sets,'finished').done;cur=[0,0];matchTb=true;tbTo=view.target}else{const sp=TenisLive.liveSplit(d.sets,'live');done=sp.done;cur=sp.cur||[0,0];if(view)tbTo=view.target;if(done.length>=bo-1)tbTo=10}
  let t;try{t=InTips.compute({pa,pb,done,cur,pts:d.pts||[0,0],server:d.server||null,bo,tbTo,matchTb})}catch(e){return ''}
- const [a,b]=[nA(d),nB(d)],row=(l,x,y)=>`<tr><td>${l}</td><td class="pa">${x}</td><td class="pb">${y}</td></tr>`,ou=(x)=>row(`Gemů ${String(x.line).replace('.',',')}`,'více '+pct(x.over),'méně '+pct(1-x.over));
- let h=`<div class="box ltips"><h3>TIPY V PRŮBĚHU</h3><table><tr><th></th><th>${esc(a)}</th><th>${esc(b)}</th></tr>`;
- h+=row(matchTb?'Vyhraje supertiebreak':`Vyhraje ${done.length+1}. set`,pct(t.cur.a),pct(1-t.cur.a));
- if(!matchTb)h+=row(`Tiebreak v ${done.length+1}. setu`,'ano '+pct(t.cur.tb),'ne '+pct(1-t.cur.tb));
- if(!matchTb)h+=t.cur.lines.map(ou).join('');
- if(t.next){h+=row(`Vyhraje ${done.length+2}. set`,pct(t.next.a),pct(1-t.next.a));h+=row(`Tiebreak v ${done.length+2}. setu`,'ano '+pct(t.next.tb),'ne '+pct(1-t.next.tb))}
- h+=`<tr><td colspan="3" class="na">Celý zápas · čekáme ${t.match.exp.toFixed(1).replace('.',',')} gemů</td></tr>`+t.match.lines.map(ou).join('');
- if(t.match.decider<1&&t.match.decider>0)h+=row('Rozhodující set','ano '+pct(t.match.decider),'ne '+pct(1-t.match.decider));
- return h+`</table><p class="note">Z Markova modelu bod po bodu (bod na podání ${pct(pa)} : ${pct(pb)}) a aktuálního skóre${d.server?' včetně podávajícího':', podávající neznámý (průměr)'}. ${t.next?`${done.length+2}. set se odehraje s pravděpodobností ${pct(t.next.played)}. `:''}Tiebreak se počítá jako 1 gem. Přepočítává se s každou změnou skóre.</p></div>`}
+ const [a,b]=[nA(d),nB(d)],items=InTips.view(t,{done,matchTb,names:[nA(d),nB(d)]}),n1=x=>String(x).replace('.',','),cnd=x=>x.cond?' <small>(pokud se hraje)</small>':'';
+ if(!items.length)return '';
+ const it=x=>{if(x.type==='win')return `<div class="lt"><div class="ltl">${x.label}${cnd(x)}</div><div class="ltbar"><i style="width:${x.a*100}%"></i></div><div class="ltn"><span class="pa">${esc(a)} ${pct(x.a)}</span><span class="pb">${pct(1-x.a)} ${esc(b)}</span></div></div>`;
+  if(x.type==='yes')return `<div class="lt ltrow"><span>${x.label}${cnd(x)}</span><b>${pct(x.p)}</b></div>`;
+  return `<div class="lt"><div class="ltl">${x.label}:</div><div class="ltrow"><span>více než ${n1(x.line)} – <b>${pct(x.over)}</b></span><span>méně – <b>${pct(1-x.over)}</b></span></div></div>`};
+ return `<div class="box ltips"><h3>TIPY V PRŮBĚHU</h3>${items.map(it).join('')}<details class="ltd"><summary>Jak se to počítá</summary><p class="note">Model bod po bodu z aktuálního skóre${d.server?' a podávajícího':''}. Tiebreak se počítá jako 1 gam. Téměř jisté tipy (nad 95 %) skrýváme.</p></details></div>`}
 function tPred(d){if(!d.cards||!d.cards[0]||!d.cards[1])return '<div class="box note">Predikce nedostupná.</div>';const [a,b]=d.cards;
  return `<div class="box note"><b>Predikce ${pct(d.live?d.live.match:d.pred)} : ${pct(1-(d.live?d.live.match:d.pred))}</b>. Před zápasem ${pct(d.pred)} : ${pct(1-d.pred)}. Rozpis faktorů je předzápasový.</div>
  <div class="box"><div class="note">${esc(d.circuit)} · ${surfCz[d.surface]} · na ${d.best_of} sety</div></div>${explainBox(d.factors,d.pred,[nA(d),nB(d)],d.surface,d.factors_src)}<div class="box"><h3>HLAVNÍ FAKTORY</h3>${(d.factors||[]).map(f=>`<div class="fac"><span>${f.label}</span><span class="${f.favors}">${'▮'.repeat(Math.min(4,1+Math.round(Math.abs(f.value)*6)))} ${esc(f.favors==='A'?a.name:b.name)}</span></div>`).join('')}
