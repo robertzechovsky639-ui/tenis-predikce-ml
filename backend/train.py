@@ -44,6 +44,8 @@ def main():
     for c, g in te.groupby("circuit"):
         m = te.circuit == c
         rep["by_circuit"][c] = dict(lightgbm=metrics(g.y, p_gbm[m.values]), elo=metrics(g.y, p_elo[m.values]))
+    import track
+    rep["calibration"] = track.calibration([float(x) for x in p_gbm], [int(x) for x in te.y])  # spolehlivostní diagram na testu
     imp = gbm.feature_importance("gain"); rep["importance"] = {f: round(float(v / imp.sum()), 4) for f, v in zip(F.FEATURES, imp)}
     # finální model: přetrénovat na všech datech se stejným počtem iterací
     gbm_all = lgb.train(params, lgb.Dataset(X[F.FEATURES], X.y), best)
