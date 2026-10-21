@@ -318,7 +318,12 @@ function lrPredict(A, B, surf) { const f = { elo_d: A.elo - B.elo, selo_d: A.sel
     unc_d: Math.log1p(A.matches) - Math.log1p(B.matches), level: 2, best_of: 3, surf_clay: +(surf === 'Clay'), surf_grass: +(surf === 'Grass'), is_qual: 0, female: +(A.id[0] === 'W'),
     spw_d: A.spw != null && B.spw != null ? A.spw - B.spw : 0, rpw_d: A.rpw != null && B.rpw != null ? A.rpw - B.rpw : 0 };
   const L = ST.lr; let z = L.intercept; const contrib = {}; L.features.forEach((k, i) => { const c = (f[k] - L.mean[i]) / L.scale[i] * L.coef[i]; z += c; contrib[k] = c });
-  return { p: 1 / (1 + Math.exp(-z)), elo_p: f.elo_p, contrib } }
+  return { p: 1 / (1 + Math.exp(-z)), elo_p: f.elo_p, contrib, f } }
+// faktory pro vysvětlení tipu, když statický detail zápasu žádné nemá (zdroje ss-/s365, starší export)
+async function browserFactors(m) { if (!m || !m.pids || !m.pids[0] || !m.pids[1]) return null; try { await ensurePlayers() } catch (e) { return null }
+  const pa = ST.players.find(p => p[0] === m.pids[0]), pb = ST.players.find(p => p[0] === m.pids[1]); if (!pa || !pb) return null;
+  const s = m.surface || 'Hard', r = lrPredict(pCard(pa, s), pCard(pb, s), s);
+  return Object.entries(r.contrib).filter(([k, v]) => LBL[k] && Math.abs(v) > .01).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 7).map(([k, v]) => ({ key: k, label: LBL[k], favors: v > 0 ? 'A' : 'B', value: v, raw: r.f[k] })) }
 const LBL = { elo_d: 'Elo celkové', selo_d: 'Elo na povrchu', elo_p: 'Elo očekávání', logrank_d: 'Žebříček', form_d: 'Forma (posl. 10 zápasů)', fat_d: 'Zápasy za 14 dní (únava)', inact_d: 'Neaktivita (dny bez zápasu)', exp_d: 'Forma vs. očekávání Elo (60 dní)', age_d: 'Věk', unc_d: 'Nejistota ratingu', spw_d: 'Body vyhrané na podání', rpw_d: 'Body vyhrané na returnu' };
 async function staticApi(u) { const url = new URL(u, location.href); const q = url.searchParams; const path = url.pathname.replace(/.*\/api\//, '/api/');
   if (path === '/api/matches') { const d = +q.get('day'); return { day: d, status: ST.status, matches: ST.all.filter(m => m.day === d) } }
@@ -328,10 +333,11 @@ async function staticApi(u) { const url = new URL(u, location.href); const q = u
   if (path.startsWith('/api/match/')) { const id = decodeURIComponent(path.slice(11)); const m = ST.byId[id]; let det = {};
     if (!/^(ss|s365)-/.test(id)) try { det = await j('data/m/' + encodeURIComponent(id) + '.json') } catch (e) { }
     if (m && m.status !== 'finished') await oddsFor(m);
-    const o = Object.assign(det, m || {}); if (m && m.odds_table) { o.odds_table = m.odds_table; o.odds_status = 'ok' } return o }
+    const o = Object.assign(det, m || {}); if (m && m.odds_table) { o.odds_table = m.odds_table; o.odds_status = 'ok' }
+    if (!(o.factors && o.factors.length) && o.pred != null) { const bf = await browserFactors(o); if (bf) { o.factors = bf; o.factors_src = 'prohlížeč' } } return o }
   if (path === '/api/players') { await ensurePlayers(); const t = norm(q.get('q')); return ST.players.filter(p => norm(p[1]).includes(t)).sort((a, b) => b[6] - a[6]).slice(0, 20).map(p => ({ id: p[0], name: p[1], g: p[0][0], matches: p[6], elo: p[2], rank: p[4] })) }
   if (path === '/api/predict') { await ensurePlayers(); const s = q.get('surface') || 'Hard'; const A = pCard(ST.players.find(p => p[0] === q.get('a')), s), B = pCard(ST.players.find(p => p[0] === q.get('b')), s);
-    const r = lrPredict(A, B, s); return { p: r.p, elo_p: r.elo_p, h2h: ['?', '?'], cards: [A, B], factors: Object.entries(r.contrib).filter(([k, v]) => LBL[k] && Math.abs(v) > .01).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 7).map(([k, v]) => ({ label: LBL[k], favors: v > 0 ? 'A' : 'B', value: v })), note: 'logistická regrese v prohlížeči' } }
+    const r = lrPredict(A, B, s); return { p: r.p, elo_p: r.elo_p, h2h: ['?', '?'], cards: [A, B], factors: Object.entries(r.contrib).filter(([k, v]) => LBL[k] && Math.abs(v) > .01).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 7).map(([k, v]) => ({ key: k, label: LBL[k], favors: v > 0 ? 'A' : 'B', value: v, raw: r.f[k] })), note: 'logistická regrese v prohlížeči' } }
   if (path === '/api/chat') { await ensurePlayers(); const t = q.get('q'); const surf = /antuk|clay/i.test(t) ? 'Clay' : /tráv|trav|grass/i.test(t) ? 'Grass' : 'Hard';
     const pr = t.split(/\s+(?:vs\.?|v|proti|-)\s+/i); if (pr.length === 2) { const find = s => { const x = norm(s.replace(/\b(antuka|antuce|tráva|trávě|tvrdý|hard|clay|grass)\b/gi, '')); return ST.players.filter(p => norm(p[1]).includes(x)).sort((a, b) => b[6] - a[6])[0] };
       const a = find(pr[0]), b = find(pr[1]); if (a && b) { const A = pCard(a, surf), B = pCard(b, surf), r = lrPredict(A, B, surf); return { answer: `${A.name} vs ${B.name} (${surf}): ${Math.round(r.p * 100)} % : ${Math.round(100 - r.p * 100)} % (logistická regrese v prohlížeči). Elo očekávání ${Math.round(r.elo_p * 100)} %.` } }

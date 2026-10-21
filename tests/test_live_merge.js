@@ -301,7 +301,7 @@ assert.ok(neu.every((m, i) => m.server === pbpSrv(i) && m.srvTrust === 3));
   assert.ok(app.includes('TenisLive.liveSplit(d.sets,d.status)'));
   assert.ok(app.includes('sp.done[k-1]'));
   assert.ok(stat.includes('TenisLive.liveSplit'));
-  assert.ok(sw.includes('tenis-v13'));
+  assert.ok(+(sw.match(/tenis-v(\d+)/) || [0, 0])[1] >= 13);  // verze cache se při změně souborů zvyšuje
   assert.ok(app.includes('predikce aktualizovány před'));
 }
 

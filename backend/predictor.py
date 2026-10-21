@@ -98,7 +98,8 @@ class Predictor:
         fb = self.feats(b, a, surf, level, best_of, q, female); xb = np.array([[fb[k] for k in F.FEATURES]])
         p = float((self.gbm.predict(x)[0] + 1 - self.gbm.predict(xb)[0]) / 2)
         x0 = np.nan_to_num(x, nan=0.0); z = self.sc.transform(x0)[0]; contrib = z * self.lr.coef_[0]
-        factors = sorted([dict(key=k, label=NAMES_CZ[k], value=round(float(c), 3), favors="A" if c > 0 else "B")
+        factors = sorted([dict(key=k, label=NAMES_CZ[k], value=round(float(c), 3), favors="A" if c > 0 else "B",
+                               raw=None if f[k] != f[k] else round(float(f[k]), 4))
                           for k, c in zip(F.FEATURES, contrib) if k in NAMES_CZ and abs(c) > 0.01], key=lambda d: -abs(d["value"]))
         h = self.s["h2h"]
         return dict(p=p, p_lr=float(self.lr.predict_proba(self.sc.transform(x0))[0, 1]), elo_p=f["elo_p"], factors=factors[:7],
