@@ -15,22 +15,213 @@
     const raw = t.join('');
     return ['tbd', 'tba', 'bye', 'qualifier', 'qualifying', 'unknown', 'player'].includes(raw) || (t.length === 1 && ['tbd', 'tba', 'bye'].includes(t[0]));
   }
+  const NAME_PARTICLE = new Set(['de', 'da', 'di', 'du', 'van', 'von', 'del', 'dos', 'das', 'la', 'le', 'el', 'al', 'st']);
+  function pushKey(keys, sur, ini) {
+    if (!sur || sur.length < 2 || !ini) return;
+    if (!keys.some(k => k[0] === sur && k[1] === ini)) keys.push([sur, ini]);
+  }
   function relaxKeys(name) {
     const s = String(name || '').trim();
+    const t = toks(s);
+    const keys = [];
     const m = s.match(/^(.*?)\s+((?:[A-Za-z][\w\-]*\.\s*)+)$/);
+    const longs = t.filter(x => x.length >= 2 && !NAME_PARTICLE.has(x));
     if (m) {
       const sur = toks(m[1]).join('');
       const parts = m[2].split(/\s+/).map(toks).filter(x => x.length);
-      if (sur.length >= 4 && parts.length) return [[sur, parts[0][0][0]]];
-      return [];
+      const ini = parts.length ? parts[0][0][0] : '';
+      if (sur.length >= 4 && ini) pushKey(keys, sur, ini);
+      const head = toks(m[1]).filter(x => x.length >= 2 && !NAME_PARTICLE.has(x));
+      if (head.length && ini) pushKey(keys, head[head.length - 1], ini);
+    } else if (t.length >= 2) {
+      const sur = t.slice(1).join('');
+      if (sur.length >= 4) pushKey(keys, sur, t[0][0]);
+      if (t.length === 2 && t[0].length >= 4) pushKey(keys, t[0], t[t.length - 1][0]);
+      if (longs.length) pushKey(keys, longs[longs.length - 1], t[0][0]);
     }
-    const t = toks(s);
-    if (t.length < 2) return [];
-    const keys = [];
-    const sur = t.slice(1).join('');
-    if (sur.length >= 4) keys.push([sur, t[0][0]]);
-    if (t.length === 2 && t[0].length >= 4) { const rev = [t[0], t[t.length - 1][0]]; if (rev[0] !== keys[0]?.[0] || rev[1] !== keys[0]?.[1]) keys.push(rev); }
     return keys;
+  }
+  function isDoublesName(name) {
+    return /[/&]/.test(String(name || ''));
+  }
+  function sigTokens(name) {
+    return toks(name).filter(t => t.length >= 2 && !NAME_PARTICLE.has(t));
+  }
+  function parseName(name) {
+    const s = String(name || '').trim();
+    const all = toks(s);
+    const hasParticle = all.some(t => NAME_PARTICLE.has(t));
+    const initials = [], given = [], surnames = [];
+    const trail = s.match(/^(.*?)\s+((?:[A-Za-z][\w\-]*\.\s*)+)$/);
+    if (trail) {
+      for (const tok of toks(trail[1])) {
+        if (NAME_PARTICLE.has(tok)) continue;
+        if (tok.length === 1) initials.push(tok);
+        else surnames.push(tok);
+      }
+      for (const part of trail[2].split(/\s+/)) {
+        const tok = (toks(part)[0] || '');
+        if (!tok || NAME_PARTICLE.has(tok)) continue;
+        if (tok.length === 1) initials.push(tok);
+        else given.push(tok);
+      }
+      return { trailing: true, surnames, initials, given, sig: surnames.concat(given), hasParticle };
+    }
+    const sig = [];
+    for (const tok of all) {
+      if (NAME_PARTICLE.has(tok)) continue;
+      if (tok.length === 1) initials.push(tok);
+      else sig.push(tok);
+    }
+    if (sig.length) {
+      surnames.push(sig[sig.length - 1]);
+      given.push(...sig.slice(0, -1));
+    }
+    return { trailing: false, surnames, initials, given, sig, hasParticle };
+  }
+  function assignInitials(initials, pool) {
+    const used = new Array(pool.length).fill(false);
+    function rec(i) {
+      if (i === initials.length) return true;
+      for (let j = 0; j < pool.length; j++) {
+        if (used[j]) continue;
+        if (pool[j][0] === initials[i]) {
+          used[j] = true;
+          if (rec(i + 1)) return true;
+          used[j] = false;
+        }
+      }
+      return false;
+    }
+    return rec(0);
+  }
+  function prefixGiven(abbr, fulls) {
+    const used = new Array(fulls.length).fill(false);
+    function rec(i) {
+      if (i === abbr.length) return true;
+      for (let j = 0; j < fulls.length; j++) {
+        if (used[j]) continue;
+        if (fulls[j].startsWith(abbr[i]) && fulls[j].length > abbr[i].length) {
+          used[j] = true;
+          if (rec(i + 1)) return true;
+          used[j] = false;
+        }
+      }
+      return false;
+    }
+    return rec(0);
+  }
+  function samePlayer(a, b) {
+    if (isPlaceholder(a) || isPlaceholder(b) || isDoublesName(a) || isDoublesName(b)) return false;
+    const A = parseName(a), B = parseName(b);
+    if (!A.sig.length || !B.sig.length) return false;
+    if (A.trailing && B.trailing) {
+      const sur = xs => xs.slice().sort().join('|');
+      if (sur(A.surnames) !== sur(B.surnames)) return false;
+      if (A.initials.slice().sort().join('') !== B.initials.slice().sort().join('')) return false;
+      return sur(A.given) === sur(B.given);
+    }
+    const trail = A.trailing ? A : B.trailing ? B : null;
+    const full = trail ? (trail === A ? B : A) : null;
+    if (trail) {
+      const fullSig = new Set(full.sig);
+      const last = trail.surnames[trail.surnames.length - 1];
+      const primary = !!last && last === full.surnames[0] && trail.surnames.every(t => fullSig.has(t));
+      const asian = !full.hasParticle && trail.surnames.length === 1 && trail.given.length === 0
+        && full.given.length === 1 && full.surnames.length === 1
+        && trail.surnames[0] === full.given[0]
+        && trail.initials.length >= 1 && trail.initials[0] === full.surnames[0][0];
+      if (primary) {
+        if (!assignInitials(trail.initials, full.given.concat(full.initials))) return false;
+        if (trail.given.length && !prefixGiven(trail.given, full.given)) return false;
+        return assignInitials(full.initials, trail.initials.concat(trail.given, trail.surnames));
+      }
+      if (!asian) return false;
+      if (!assignInitials(trail.initials.slice(1), [full.surnames[0], full.given[0]].concat(full.initials))) return false;
+      return assignInitials(full.initials, trail.initials.concat(trail.surnames));
+    }
+    const setA = new Set(A.sig), setB = new Set(B.sig);
+    const sub = (x, y) => [...x].every(t => y.has(t));
+    const equal = sub(setA, setB) && sub(setB, setA);
+    const sameSur = A.surnames[0] && A.surnames[0] === B.surnames[0];
+    if (!(equal || (sameSur && (sub(setA, setB) || sub(setB, setA))))) return false;
+    return assignInitials(A.initials, B.sig.concat(B.initials)) && assignInitials(B.initials, A.sig.concat(A.initials));
+  }
+  function samePair(a1, a2, b1, b2) {
+    if (isDoublesName(a1) || isDoublesName(a2) || isDoublesName(b1) || isDoublesName(b2)) return false;
+    return (samePlayer(a1, b1) && samePlayer(a2, b2)) || (samePlayer(a1, b2) && samePlayer(a2, b1));
+  }
+  function canonTournament(name) {
+    let s = String(name || '').trim();
+    if (!s) return '';
+    const comma = s.indexOf(',');
+    if (comma >= 0) s = s.slice(0, comma);
+    s = s.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+    s = s.replace(/^(atp|wta|itf|challenger)\s+(men|women|muži|ženy)?\s*/i, '').trim();
+    return s;
+  }
+  function preferKeep(a, b) {
+    const rank = m => {
+      const id = String(m.id || ''), src = String(m.src || '');
+      if (id.startsWith('fs-') || id.startsWith('espn-') || /flashscore|espn/i.test(src)) return 2;
+      if (m.pred != null && !m.pred_low) return 1;
+      return 0;
+    };
+    const ra = rank(a), rb = rank(b);
+    if (ra !== rb) return ra > rb ? a : b;
+    if (a.status === 'live' && b.status !== 'live') return a;
+    if (b.status === 'live' && a.status !== 'live') return b;
+    return a;
+  }
+  function sameFixture(a, b) {
+    if (!a || !b || a.g !== b.g) return false;
+    if (!samePair(a.players[0].name, a.players[1].name, b.players[0].name, b.players[1].name)) return false;
+    if (!(a.ts && b.ts)) return true;
+    const dt = Math.abs(a.ts - b.ts);
+    const bothDone = a.status === 'finished' && b.status === 'finished';
+    return dt <= (bothDone ? 18 : 36) * 3600;
+  }
+  function absorbMatch(keep, extra) {
+    const same = samePlayer(keep.players[0].name, extra.players[0].name);
+    const flipSets = ss => (ss || []).map(s => [s[1], s[0]]);
+    const orient = (v) => !v ? v : (same ? v.slice() : [v[1], v[0]]);
+    const sets = same ? extra.sets : flipSets(extra.sets);
+    const server = extra.server == null ? null : (same ? extra.server : (extra.server === 1 || extra.server === 2 ? 3 - extra.server : null));
+    applyLive(keep, {
+      status: extra.status || keep.status,
+      sets: sets && sets.length ? sets : keep.sets,
+      pts: orient(extra.pts),
+      pts_raw: orient(extra.pts_raw),
+      server, srvTrust: extra.srvTrust || 0, srv_src: extra.srv_src || null,
+      src_pts: extra.src_pts || extra.src || 'merge',
+      winner: extra.winner ? (same ? extra.winner : 3 - extra.winner) : 0
+    }, { src: 'merge', t0: Date.now() }, () => true);
+    if (!keep.ssid && extra.ssid) { keep.ssid = extra.ssid; keep.ss_same = !!same; }
+    if (!keep.fs && extra.fs) keep.fs = extra.fs;
+    if (!keep.odds && extra.odds) { keep.odds = extra.odds; keep.odds_table = extra.odds_table; }
+    if (!keep.surface && extra.surface) keep.surface = extra.surface;
+    const ct = canonTournament(keep.tournament) || canonTournament(extra.tournament);
+    if (ct) keep.tournament = ct;
+    (extra.players || []).forEach((p, i) => {
+      const k = keep.players[same ? i : 1 - i];
+      if (k && p && p.ranking != null && k.ranking == null) k.ranking = p.ranking;
+    });
+    if (keep.pred == null && extra.pred != null) {
+      keep.pred = extra.pred; keep.pred_low = !!extra.pred_low; keep.pred_note = extra.pred_note || null;
+    }
+    return keep;
+  }
+  function dedupeMatches(list) {
+    const out = [];
+    for (const m of list || []) {
+      const i = out.findIndex(x => sameFixture(x, m));
+      if (i < 0) { out.push(m); continue; }
+      const keep = preferKeep(out[i], m);
+      const drop = keep === out[i] ? m : out[i];
+      absorbMatch(keep, drop);
+      out[i] = keep;
+    }
+    return out;
   }
   function buildIndex(players) {
     const full = new Map(), rx = new Map(), byId = new Map();
@@ -495,7 +686,7 @@
   }
 
   root.TenisLive = {
-    toks, isPlaceholder, relaxKeys, buildIndex, matchPlayer, eloFromRank, tourElo, fallbackPred,
+    toks, isPlaceholder, relaxKeys, buildIndex, matchPlayer, samePlayer, samePair, canonTournament, preferKeep, sameFixture, absorbMatch, dedupeMatches, eloFromRank, tourElo, fallbackPred,
     normSets, pointRank, cmpScore, isDeuceReset, finishedSet, liveSplit, displaySets, dayOffset, pragueDate, fsLiveStatus, matchWinner, sealIfDecided, closeFinishedTb, tbWinner, tbTarget, parseSofaScore, map365Points, reportedServer, tbNow, tbView, applyLive, MIN_HISTORY, RANK_ELO, TOUR_PRIOR
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -16,7 +16,7 @@ class Service:
         self.days = {d: [] for d in DAYS}; self.by_id = {}; self.odds = {}; self.odds_t = {}
         self.subs = set(); self.status = dict(sources={}, last_poll=None, poll_ms=None, errors={})
         self.pool = cf.ThreadPoolExecutor(8); self.opool = cf.ThreadPoolExecutor(6); self.inflight = set(); self.cycles = []; self.fs_days = {}; self.fs_t = {}; self.espn_cache = []
-        self.pred_cache = {}; self.l365 = {}
+        self.pred_cache = {}; self.l365 = []
 
     # ---------- obohacení ----------
     def _resolve(self, m, fn):
@@ -113,9 +113,10 @@ class Service:
             if m["status"] == "live": dd = 0
             m["pts"] = None; m["server"] = None; m["srv_trust"] = 0
             if m["status"] == "live":
-                x = self.l365.get(frozenset(S.surname_key(p["name"]) for p in m["players"]))
+                a_name, b_name = m["players"][0]["name"], m["players"][1]["name"]
+                x = next((r for r in self.l365 if S.same_pair(a_name, b_name, r.get("home_name") or "", r.get("away_name") or "")), None)
                 if x:
-                    same = x["home"] == S.surname_key(m["players"][0]["name"])
+                    same = S.same_player(m["players"][0]["name"], x.get("home_name") or "")
                     pts = list(x["pts"] if same else x["pts"][::-1])
                     sets = x["sets"] if same else [s[::-1] for s in x["sets"]]
                     sets, pts, closed = SM.close_finished_tb(sets, pts, m.get("best_of") or 3)

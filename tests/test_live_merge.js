@@ -301,7 +301,7 @@ assert.ok(neu.every((m, i) => m.server === pbpSrv(i) && m.srvTrust === 3));
   assert.ok(app.includes('TenisLive.liveSplit(d.sets,d.status)'));
   assert.ok(app.includes('sp.done[k-1]'));
   assert.ok(stat.includes('TenisLive.liveSplit'));
-  assert.ok(sw.includes('tenis-v10'));
+  assert.ok(sw.includes('tenis-v11'));
   assert.ok(app.includes('predikce aktualizovány před'));
 }
 
@@ -430,6 +430,69 @@ assert.strictEqual(adv.server, 1);
   const tick = stat.slice(stat.indexOf('async function fsTick'));
   assert.ok(tick.length > 40);
   assert.ok(!tick.includes('m.sets = sets'));
+}
+
+// Cali: Flashscore „Ficovich J. P.“ a Sofascore „J. Pablo Ficovich“ jsou jeden zápas.
+{
+  assert.strictEqual(TL.samePlayer('Ficovich J. P.', 'J. Pablo Ficovich'), true);
+  assert.strictEqual(TL.samePlayer('Meligeni Alves F.', 'F. Meligeni Alves'), true);
+  assert.strictEqual(TL.samePlayer('Świątek I.', 'Iga Swiatek'), true);
+  assert.strictEqual(TL.samePlayer('de Minaur A.', 'Alex de Minaur'), true);
+  assert.strictEqual(TL.samePlayer('Carlos Alcaraz', 'Albert Alcaraz'), false);
+  assert.strictEqual(TL.samePlayer('Ficovich J. P.', 'F. Meligeni Alves'), false);
+  assert.strictEqual(TL.samePlayer('TBD', 'TBD'), false);
+  assert.strictEqual(TL.samePlayer('Tirante T. A.', 'Thiago Agustin Tirante'), true);
+  assert.strictEqual(TL.samePlayer('Ryan Ziegann S.', 'Sam Ryan Ziegann'), true);
+  assert.strictEqual(TL.samePlayer('Bhamidipaty S. R.', 'Shrivalli Rashmikaa Bhamidipaty'), true);
+  assert.strictEqual(TL.samePlayer('Wan I W.', 'I Wen Wan'), true);
+  assert.strictEqual(TL.samePlayer('Mushika Mio', 'Mio Mushika'), true);
+  assert.strictEqual(TL.samePlayer('Yuhan L.', 'Yuhan Liu'), true);
+  assert.strictEqual(TL.samePlayer('Zhang S.', 'Zhang Shuai'), true);
+  assert.strictEqual(TL.samePlayer('Shi H.', 'Shi Han'), true);
+  assert.strictEqual(TL.samePlayer('Guo H.', 'Guo Hanyu'), true);
+  assert.strictEqual(TL.samePlayer('Cerundolo J. M.', 'Juan Manuel Cerundolo'), true);
+  assert.strictEqual(TL.samePlayer('Manuel J.', 'Juan Manuel Cerundolo'), false);
+  assert.strictEqual(TL.samePlayer('Pierre H.', 'Pierre-Hugues Herbert'), false);
+  assert.strictEqual(TL.samePlayer('Zhang S.', 'Zhang Z.'), false);
+  assert.strictEqual(TL.samePlayer('Martin T.', 'Tomas Martin Etcheverry'), false);
+  assert.strictEqual(TL.samePlayer('Luciano L.', 'Luciano Darderi'), false);
+  assert.strictEqual(TL.samePlayer('Alex M.', 'Alex de Minaur'), false);
+  assert.strictEqual(TL.samePlayer('Yang Y.', 'Yang Y. Y.'), false);
+  assert.strictEqual(TL.samePair('TBD', 'TBD', 'TBD', 'TBD'), false);
+  assert.strictEqual(TL.samePair('Ficovich J. P.', 'Meligeni Alves F.', 'F. Meligeni Alves', 'J. Pablo Ficovich'), true);
+  assert.strictEqual(TL.canonTournament('Cali (Colombia)'), 'Cali');
+  assert.strictEqual(TL.canonTournament('Cali, Colombia'), 'Cali');
+  assert.strictEqual(TL.canonTournament('Roland Garros'), 'Roland Garros');
+  const fsM = { id: 'fs-cali', src: 'Flashscore', g: 'M', circuit: 'Challenger', tournament: 'Cali (Colombia)', status: 'live', best_of: 3, ts: 1000, pred: 0.15, sets: [[2, 6], [1, 1]], pts: null, server: null, srvTrust: 0, _accAt: 1, players: [{ name: 'Ficovich J. P.' }, { name: 'Meligeni Alves F.' }] };
+  const ssM = { id: 'ss-cali', src: 'Sofascore', g: 'M', circuit: 'Challenger', tournament: 'Cali, Colombia', status: 'live', best_of: 3, ts: 2000, pred: 0.11, ssid: 99, sets: [[2, 6], [2, 2]], pts: [2, 3], pts_raw: [30, 40], server: 2, srvTrust: 1, players: [{ name: 'J. Pablo Ficovich' }, { name: 'F. Meligeni Alves' }] };
+  const swapped = { id: 'ss-swap', src: 'Sofascore', g: 'M', tournament: 'Cali, Colombia', status: 'live', best_of: 3, ts: 2000, sets: [[6, 2], [2, 2]], pts: [3, 2], pts_raw: [40, 30], server: 1, srvTrust: 1, players: [{ name: 'F. Meligeni Alves' }, { name: 'J. Pablo Ficovich' }] };
+  let out = TL.dedupeMatches([fsM, ssM]);
+  assert.strictEqual(out.length, 1);
+  assert.strictEqual(out[0].id, 'fs-cali');
+  assert.strictEqual(out[0].tournament, 'Cali');
+  assert.strictEqual(JSON.stringify(out[0].sets), JSON.stringify([[2, 6], [2, 2]]));
+  assert.strictEqual(JSON.stringify(out[0].pts), JSON.stringify([2, 3]));
+  assert.strictEqual(JSON.stringify(out[0].pts_raw), JSON.stringify([30, 40]));
+  assert.strictEqual(out[0].pred, 0.15);
+  assert.strictEqual(out[0].ssid, 99);
+  const fresh = { id: 'fs-cali2', src: 'Flashscore', g: 'M', tournament: 'Cali (Colombia)', status: 'live', best_of: 3, ts: 3000, pred: 0.2, sets: [[2, 6], [3, 2]], pts: [1, 0], server: 1, srvTrust: 2, _accAt: 1, players: [{ name: 'Ficovich J. P.' }, { name: 'Meligeni Alves F.' }] };
+  const stale = { id: 'ss-old', src: 'Sofascore', g: 'M', tournament: 'Cali, Colombia', status: 'live', best_of: 3, ts: 1000, sets: [[2, 6], [1, 1]], pts: null, players: [{ name: 'J. Pablo Ficovich' }, { name: 'F. Meligeni Alves' }] };
+  out = TL.dedupeMatches([fresh, stale]);
+  assert.strictEqual(out.length, 1);
+  assert.strictEqual(JSON.stringify(out[0].sets), JSON.stringify([[2, 6], [3, 2]]));
+  assert.strictEqual(JSON.stringify(out[0].pts), JSON.stringify([1, 0]));
+  const base = { id: 'fs-ord', src: 'Flashscore', g: 'M', tournament: 'Cali (Colombia)', status: 'live', best_of: 3, ts: 1000, sets: [[2, 6], [1, 1]], pts: null, _accAt: 1, players: [{ name: 'Ficovich J. P.' }, { name: 'Meligeni Alves F.' }] };
+  out = TL.dedupeMatches([base, swapped]);
+  assert.strictEqual(out.length, 1);
+  assert.strictEqual(JSON.stringify(out[0].sets), JSON.stringify([[2, 6], [2, 2]]));
+  assert.strictEqual(JSON.stringify(out[0].pts), JSON.stringify([2, 3]));
+  const yesterday = { id: 'fs-old', src: 'Flashscore', g: 'M', status: 'finished', ts: 1000, sets: [[6, 3], [6, 4]], players: [{ name: 'Ficovich J. P.' }, { name: 'Meligeni Alves F.' }] };
+  const today = { id: 'fs-new', src: 'Flashscore', g: 'M', status: 'live', ts: 1000 + 40 * 3600, sets: [[1, 0]], players: [{ name: 'J. Pablo Ficovich' }, { name: 'F. Meligeni Alves' }] };
+  assert.strictEqual(TL.dedupeMatches([yesterday, today]).length, 2);
+  const src = fs.readFileSync(path.join(root, 'web/static.js'), 'utf8');
+  assert.ok(src.includes('TenisLive.samePair'));
+  assert.ok(src.includes('TenisLive.dedupeMatches'));
+  assert.ok(src.includes('TenisLive.samePlayer'));
 }
 
 console.log('test_live_merge ok; old snapshots', oldUnique.size, 'stable after fix');
