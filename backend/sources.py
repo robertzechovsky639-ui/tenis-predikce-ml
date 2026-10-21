@@ -78,6 +78,23 @@ def _assign_initials(initials, pool):
 
     return rec(0)
 
+def _given_initial_need(full_name, spelled, trail_given):
+    """'Zaharije-Zak' je jedno křestní jméno: stačí iniciála Z, ne Z a Z."""
+    groups = []
+    for w in str(full_name or "").split():
+        if re.match(r"^[A-Za-z]\.$", w):
+            continue
+        parts = [t for t in name_tokens(w) if len(t) >= 2 and t not in _PARTICLE]
+        if parts:
+            groups.append(parts)
+    need = []
+    trail_given = trail_given or []
+    for g in groups[:-1]:
+        uncovered = [tok for tok in g if tok not in spelled and not any(tok.startswith(t) and len(t) >= 3 for t in trail_given)]
+        if uncovered:
+            need.append(uncovered[0][0])
+    return need
+
 def _prefix_given(abbr, fulls):
     used = [False] * len(fulls)
 
@@ -124,7 +141,8 @@ def same_player(a, b):
                  and trail["initials"] and trail["initials"][0] == full["surnames"][0][0])
         if primary or compound:
             spelled = set(trail["surnames"] + trail["given"])
-            need = [g[0] for g in full["given"] if g not in spelled and not any(g.startswith(t) and len(t) >= 3 for t in trail["given"])]
+            full_name = b if trail is A else a
+            need = _given_initial_need(full_name, spelled, trail["given"])
             if not _assign_initials(need, trail["initials"]):
                 return False
             if not _assign_initials(trail["initials"], full["given"] + full["initials"]):

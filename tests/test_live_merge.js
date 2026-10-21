@@ -301,7 +301,7 @@ assert.ok(neu.every((m, i) => m.server === pbpSrv(i) && m.srvTrust === 3));
   assert.ok(app.includes('TenisLive.liveSplit(d.sets,d.status)'));
   assert.ok(app.includes('sp.done[k-1]'));
   assert.ok(stat.includes('TenisLive.liveSplit'));
-  assert.ok(sw.includes('tenis-v12'));
+  assert.ok(sw.includes('tenis-v13'));
   assert.ok(app.includes('predikce aktualizovány před'));
 }
 
@@ -454,6 +454,9 @@ assert.strictEqual(adv.server, 1);
   assert.strictEqual(TL.samePlayer('Guo H.', 'Guo Hanyu'), true);
   assert.strictEqual(TL.samePlayer('Cerundolo J. M.', 'Juan Manuel Cerundolo'), true);
   assert.strictEqual(TL.samePlayer('Manuel J.', 'Juan Manuel Cerundolo'), false);
+  assert.strictEqual(TL.samePlayer('Talic Z.', 'Zaharije-Zak Talic'), true);
+  assert.strictEqual(TL.samePlayer('Gasquet J.', 'Jean-Pierre Gasquet'), true);
+  assert.strictEqual(TL.samePlayer('Gasquet P.', 'Jean-Pierre Gasquet'), false);
   assert.strictEqual(TL.samePlayer('Pierre H.', 'Pierre-Hugues Herbert'), false);
   assert.strictEqual(TL.samePlayer('Zhang S.', 'Zhang Z.'), false);
   assert.strictEqual(TL.samePlayer('Martin T.', 'Tomas Martin Etcheverry'), false);
@@ -524,6 +527,148 @@ assert.strictEqual(adv.server, 1);
   assert.strictEqual(JSON.stringify(opened.sets), JSON.stringify([[6, 3], [6, 7], [0, 0]]));
   assert.strictEqual(JSON.stringify(opened.pts), JSON.stringify([1, 0]));
   assert.strictEqual(opened.server, 1);
+}
+
+// Každý živý zápas ze snímku a z feedů, ne jen jeden. Seznam i detail čtou pts_raw a server.
+{
+  assert.strictEqual(JSON.stringify(TL.displaySets([], 'live')), JSON.stringify([[0, 0]]));
+  assert.strictEqual(JSON.stringify(TL.displaySets([], 'upcoming')), JSON.stringify([]));
+  const stuck = { status: 'finished', sets: [[3, 0]], pts: null, server: null, winner: 0, best_of: 3, pred: 0.5, _accAt: 1 };
+  assert.strictEqual(TL.applyLive(stuck, { status: 'live', sets: [[4, 0]], pts: [2, 3], pts_raw: [30, 40], server: 1, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 5 }, () => true), true);
+  assert.strictEqual(stuck.status, 'live');
+  assert.strictEqual(JSON.stringify(stuck.pts_raw), JSON.stringify([30, 40]));
+  assert.strictEqual(stuck.server, 1);
+  const decided = { status: 'finished', sets: [[6, 1], [6, 3]], winner: 1, best_of: 3, _accAt: 1 };
+  assert.strictEqual(TL.applyLive(decided, { status: 'live', sets: [[6, 1], [6, 3]], pts: [0, 0], pts_raw: [0, 0], server: 2, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 6 }, () => true), false);
+  assert.strictEqual(decided.status, 'finished');
+  assert.strictEqual(JSON.stringify(decided.sets), JSON.stringify([[6, 1], [6, 3]]));
+
+  context.location = { hostname: 'example.com', search: '', href: 'http://example.com/' };
+  context.URL = URL;
+  context.URLSearchParams = URLSearchParams;
+  context.Date = Date;
+  context.Math = Math;
+  context.JSON = JSON;
+  context.Map = Map;
+  context.Set = Set;
+  context.decodeURIComponent = decodeURIComponent;
+  context.encodeURIComponent = encodeURIComponent;
+  vm.runInContext(fs.readFileSync(path.join(root, 'web/static.js'), 'utf8') + '\nglobalThis.__liveCalc = liveCalc;', context, { filename: 'static.js' });
+  const liveCalc = context.__liveCalc;
+  const app = fs.readFileSync(path.join(root, 'web/app.js'), 'utf8');
+  assert.ok(app.includes('m.server===i+1'));
+  assert.ok(app.includes('m.pts_raw?'));
+  assert.ok(app.includes("d.pts_raw?' · Gem '"));
+  assert.ok(app.includes("d.server?' · podává '"));
+
+  const fix = JSON.parse(fs.readFileSync(path.join(root, 'tests/fixtures/live_points_all.json'), 'utf8'));
+  const all = JSON.parse(JSON.stringify(fix.snapshot));
+  function findPair(g, a, b) {
+    const hits = all.filter(m => m.g === g && TL.samePair(m.players[0].name, m.players[1].name, a, b));
+    if (!hits.length) return null;
+    const live = hits.filter(m => m.status === 'live');
+    const open = hits.filter(m => m.status !== 'finished');
+    const pool = live.length ? live : open.length ? open : hits;
+    return pool.reduce((x, y) => TL.preferKeep(x, y));
+  }
+  const sources = [];
+  let t0 = Date.now();
+  function pushSource(card, kind, names, sets, pts, raw, server) {
+    sources.push({ id: card.id, kind, names, sets: JSON.stringify(TL.normSets(sets)), pts: pts || null, raw: raw || null, server: server === 1 || server === 2 ? server : null });
+  }
+  for (const e of fix.sofa) {
+    let m = findPair(e.gender, e.home, e.away);
+    if (!m) {
+      m = { id: 'ss-' + e.id, src: 'Sofascore', g: e.gender, status: 'live', sets: [], best_of: 3, pred: 0.5, players: [{ name: e.home }, { name: e.away }] };
+      all.push(m);
+    }
+    const same = TL.samePlayer(e.home, m.players[0].name);
+    const parsed = TL.parseSofaScore(e.homeScore, e.awayScore, m.best_of || 3);
+    const sets = same ? parsed.sets : parsed.sets.map(s => [s[1], s[0]]);
+    const pts = same ? parsed.pts : [parsed.pts[1], parsed.pts[0]];
+    const raw = same ? parsed.pts_raw : [parsed.pts_raw[1], parsed.pts_raw[0]];
+    const server = TL.reportedServer(e.firstToServe, same);
+    if (e.status === 'inprogress') {
+      TL.applyLive(m, { status: 'live', sets, pts, pts_raw: raw, server, srvTrust: server ? 1 : 0, srv_src: server ? 'firstToServe' : null, src_pts: 'Sofascore' }, { src: 'sofascore', t0: t0++ }, () => true);
+      pushSource(m, 'sofa', e.home + ' vs ' + e.away, sets, pts, raw, server);
+    }
+  }
+  for (const g of fix.s365) {
+    if (String(g.home).includes('/') || String(g.away).includes('/')) continue;
+    const m = findPair('M', g.home, g.away) || findPair('W', g.home, g.away);
+    assert.ok(m, '365 bez karty ' + g.home);
+    const same = TL.samePlayer(g.home, m.players[0].name);
+    const sets0 = g.stages.filter(s => /^Set \d/.test(s.name)).map(s => [s.home | 0, s.away | 0]).filter(s => s[0] >= 0 && s[1] >= 0);
+    const sets = same ? sets0 : sets0.map(s => [s[1], s[0]]);
+    const gm = g.stages.find(s => s.name === 'Game') || {};
+    const raw0 = [gm.home ?? 0, gm.away ?? 0];
+    const p0 = TL.map365Points(raw0[0], raw0[1]);
+    const pts = same ? p0 : [p0[1], p0[0]];
+    const raw = same ? raw0 : [raw0[1], raw0[0]];
+    const server = TL.reportedServer(g.homePoss ? 1 : g.awayPoss ? 2 : null, same);
+    TL.applyLive(m, { status: 'live', sets, pts, pts_raw: raw, server, srvTrust: server ? 2 : 0, srv_src: server ? '365' : null, src_pts: '365scores' }, { src: 's365', t0: t0++ }, () => true);
+    pushSource(m, '365', g.home + ' vs ' + g.away, sets, pts, raw, server);
+  }
+  const liveCards = all.filter(m => m.status === 'live');
+  for (let i = 0; i < liveCards.length; i++) {
+    for (let j = i + 1; j < liveCards.length; j++) assert.ok(!TL.sameFixture(liveCards[i], liveCards[j]), liveCards[i].id + ' ' + liveCards[j].id);
+  }
+  const seen = new Set();
+  for (const src of sources) {
+    const m = all.find(x => x.id === src.id);
+    const key = src.names;
+    seen.add(key);
+    const rel = TL.cmpScore(m.sets, null, JSON.parse(src.sets), null);
+    assert.ok(rel <= 0, 'skóre se po sloučení vrátilo: ' + key);
+    if (m.status !== 'live') continue;
+    const aligned = JSON.stringify(TL.normSets(m.sets)) === src.sets;
+    if (aligned && src.pts) {
+      const shown = TL.displaySets(m.sets, m.status, m.best_of);
+      assert.ok(shown.length && m.pts_raw, 'seznam nemá body: ' + key);
+      assert.ok(m.pts_raw, 'detail nemá gem: ' + key);
+    }
+    if (aligned && src.server) {
+      assert.ok(m.server === 1 || m.server === 2, 'seznam ani detail nemají podávajícího: ' + key);
+    }
+    if (m.pred == null) m.pred = 0.5;
+    liveCalc(m);
+    if (m.server) assert.ok(m.live.note.indexOf('nejsou k dispozici') < 0, key);
+    else if (m.pts) assert.ok(m.live.note.indexOf('nejsou k dispozici') < 0, key);
+  }
+  let kept = 0;
+  for (const m of liveCards) {
+    if (!m.pts) continue;
+    kept++;
+    const setsBefore = JSON.stringify(m.sets);
+    const ptsBefore = JSON.stringify(m.pts);
+    const rawBefore = JSON.stringify(m.pts_raw);
+    const srvBefore = m.server;
+    const ahead = TL.normSets(m.sets).map(s => [s[0], s[1]]);
+    if (!ahead.length) ahead.push([1, 0]);
+    else ahead[ahead.length - 1] = [ahead[ahead.length - 1][0] + 1, ahead[ahead.length - 1][1]];
+    assert.strictEqual(TL.applyLive(m, { status: 'live', sets: ahead, src_pts: 'Flashscore' }, { src: 'fs', t0: t0++ }, () => true), false, m.players.map(p => p.name).join(' vs '));
+    assert.strictEqual(JSON.stringify(m.sets), setsBefore);
+    assert.strictEqual(JSON.stringify(m.pts), ptsBefore);
+    assert.strictEqual(JSON.stringify(m.pts_raw), rawBefore);
+    assert.strictEqual(m.server, srvBefore);
+    const cur = m.pts.map(x => x | 0);
+    const nxt = cur[0] === 3 && cur[1] === 2 ? [4, 2] : cur[0] === 2 && cur[1] === 3 ? [2, 4] : [cur[0] + 1, cur[1]];
+    const before = m.live && m.live.match;
+    assert.strictEqual(TL.applyLive(m, { status: 'live', sets: JSON.parse(setsBefore), pts: nxt, pts_raw: nxt, server: m.server, srvTrust: m.server ? (m.srvTrust || 1) : 0, src_pts: m.src_pts || 'Sofascore' }, { src: 'sofascore', t0: t0++ }, () => true), true, m.id);
+    assert.notStrictEqual(JSON.stringify(m.pts), ptsBefore);
+    assert.strictEqual(m._lk, '');
+    if (m.pred != null) {
+      liveCalc(m);
+      if (m.server && before != null) assert.ok(Math.abs(m.live.match - before) > 1e-9, 'predikce se nepohnula ' + m.id);
+    }
+  }
+  const sofaN = fix.sofa.length;
+  const snapLive = fix.snapshot.filter(m => m.status === 'live').length;
+  const s365Singles = fix.s365.filter(g => !String(g.home).includes('/') && !String(g.away).includes('/')).length;
+  assert.strictEqual(snapLive, fix.snapshotLive);
+  assert.ok(snapLive >= 1 && sofaN >= 1 && kept >= 1);
+  assert.strictEqual(seen.size, sofaN);
+  console.log('live points all: snapshot', snapLive, 'sofa', sofaN, '365 singles', s365Singles, '365 rows', fix.s365.length, 'espn', fix.espnInProgress, 'cards', liveCards.length, 'point ticks', kept);
 }
 
 console.log('test_live_merge ok; old snapshots', oldUnique.size, 'stable after fix');
