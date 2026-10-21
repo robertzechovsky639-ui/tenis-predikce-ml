@@ -55,8 +55,8 @@ const surKey = n => { n = String(n || '').trim(); const m = n.match(/^(.*?)\s+[A
 const pairKey = (a, b) => [surKey(a), surKey(b)].sort().join('|');
 const lastTok = n => { n = String(n || '').trim(); const m = n.match(/^(.*?)\s+[A-Z][\w\-]*\.$/); const t = (m ? m[1] : n).split(/[\s\-]+/); return norm(t[t.length - 1]) };
 const pairKey2 = (a, b) => '~' + [lastTok(a), lastTok(b)].sort().join('|');
-function findPair(g, a, b) {
-  const hits = ST.all.filter(m => m.g === g && TenisLive.samePair(m.players[0].name, m.players[1].name, a, b));
+function findPair(g, a, b, ts) {
+  const hits = ST.all.filter(m => m.g === g && TenisLive.samePair(m.players[0].name, m.players[1].name, a, b) && !(ts && m.status !== 'live' && TenisLive.tsFar(m.ts, ts)));
   if (!hits.length) return null;
   const live = hits.filter(m => m.status === 'live');
   const open = hits.filter(m => m.status !== 'finished');
@@ -134,7 +134,7 @@ async function srcESPN(changed, token, signal) {
         if (st === 'in' && !terminal) consider(m, { status: 'live', sets: ss }, token, changed);
         else if (terminal) consider(m, { status: 'finished', sets: ss, winner: cs[0].winner ? (same ? 1 : 2) : cs[1].winner ? (same ? 2 : 1) : 0 }, token, changed); } } }))) }
 async function src365(changed, token, signal) { const d = await j('https://webws.365scores.com/web/games/current/?appTypeId=5&langId=1&timezoneName=Europe%2FPrague&userCountryId=1&sports=3', null, signal);
-  for (const g of d.games || []) { const h = g.homeCompetitor || {}, a = g.awayCompetitor || {}; const m = findPair('M', h.name, a.name) || findPair('W', h.name, a.name); if (!m) continue;
+  for (const g of d.games || []) { const h = g.homeCompetitor || {}, a = g.awayCompetitor || {}; const t365 = g.startTime ? Date.parse(g.startTime) / 1000 : null; const m = findPair('M', h.name, a.name, t365) || findPair('W', h.name, a.name, t365); if (!m) continue;
     const same = TenisLive.samePlayer(h.name, m.players[0].name); const stg = {}; for (const s of g.stages || []) stg[s.name] = s;
     const sets = Object.keys(stg).filter(k => /^Set \d/.test(k)).sort((a, b) => (+a.match(/\d+/)[0]) - (+b.match(/\d+/)[0])).map(k => [stg[k].homeCompetitorScore | 0, stg[k].awayCompetitorScore | 0]).filter(s => s[0] >= 0 && s[1] >= 0);
     const ss = same ? sets : sets.map(s => [s[1], s[0]]);
@@ -151,7 +151,8 @@ function sofaServer(e, same) {
 async function srcSofa(changed, token, signal) { const d = await j('https://api.sofascore1.com/api/v1/sport/tennis/events/live', null, signal);
   for (const e of d.events || []) { const H = e.homeTeam || {}, A = e.awayTeam || {}; if (H.type !== 1 || A.type !== 1) continue;
     const circ = SS_CIRC[e.tournament?.category?.name]; if (!circ) continue; const g = H.gender === 'F' ? 'W' : 'M';
-    let m = findPair(g, H.name, A.name);
+    if (e.status?.type === 'inprogress' && TenisLive.sofaStale(e, Date.now() / 1000)) continue;  // zamrzlý „živý“ záznam
+    let m = findPair(g, H.name, A.name, e.startTimestamp);
     if (!m) {
       m = { id: 'ss-' + e.id, src: 'Sofascore', circuit: circ, g, tournament: TenisLive.canonTournament(e.tournament?.name || ''), surface: SS_SURF(e.groundType), round: e.roundInfo?.name || '',
         qual: /qualif/i.test(e.tournament?.name + ' ' + (e.roundInfo?.name || '')) ? 1 : 0, ts: e.startTimestamp, status: 'live', sets: [], winner: 0, best_of: 3, fs: null,

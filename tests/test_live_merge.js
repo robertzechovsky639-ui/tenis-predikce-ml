@@ -672,3 +672,18 @@ assert.strictEqual(adv.server, 1);
 }
 
 console.log('test_live_merge ok; old snapshots', oldUnique.size, 'stable after fix');
+
+// Zamrzlý Sofascore „inprogress“ (bez změny > 45 min) se ignoruje; dvojice s jiným začátkem o > 12 h je jiný zápas.
+{
+  const now = 1792611000;
+  assert.strictEqual(TL.sofaStale({ changes: { changeTimestamp: now - 60 } }, now), false);
+  assert.strictEqual(TL.sofaStale({ changes: { changeTimestamp: now - 329 * 60 } }, now), true);   // Hageman – Falkowska, 21. 10. 2026
+  assert.strictEqual(TL.sofaStale({}, now), false);
+  assert.strictEqual(TL.tsFar(1792659600, now - 729 * 60), true);                   // Paolini A. – Ujvary: zítřejší zápas vs. starý živý záznam
+  assert.strictEqual(TL.tsFar(1792610400, 1792610400 + 3 * 3600), false);                           // zpoždění v rozpisu je v pořádku
+  assert.strictEqual(TL.tsFar(null, 1792610400), false);
+  const stat = fs.readFileSync(path.join(root, 'web/static.js'), 'utf8');
+  assert.ok(/sofaStale\(e, Date\.now\(\) \/ 1000\)\) continue/.test(stat), 'srcSofa musí přeskočit zamrzlé záznamy');
+  assert.ok(/findPair\(g, H\.name, A\.name, e\.startTimestamp\)/.test(stat), 'srcSofa páruje i podle začátku');
+}
+console.log('stale live ok');
