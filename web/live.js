@@ -719,7 +719,18 @@
     return sealIfDecided(m) || ok;
   }
 
+  // Sofascore občas nechá zápas „inprogress“ celé hodiny bez jediné změny (zapomenutý zápas, přerušení).
+  // Takový záznam nesmí dělat z naplánovaného zápasu živý ani přidávat fantomové živé zápasy.
+  const STALE_LIVE_S = 45 * 60;
+  function sofaStale(e, nowS) {
+    const ch = e && e.changes && e.changes.changeTimestamp; if (!ch) return false;
+    return nowS - ch > STALE_LIVE_S;
+  }
+  // Stejná dvojice hráčů, ale začátek o víc než 12 h jinde = jiný zápas (např. zítřejší odveta v rozpisu).
+  const FAR_S = 12 * 3600;
+  function tsFar(a, b) { return !!(a && b && Math.abs(a - b) > FAR_S); }
   root.TenisLive = {
+    sofaStale, tsFar, STALE_LIVE_S,
     toks, isPlaceholder, relaxKeys, buildIndex, matchPlayer, samePlayer, samePair, canonTournament, preferKeep, sameFixture, absorbMatch, dedupeMatches, eloFromRank, tourElo, fallbackPred,
     normSets, pointRank, cmpScore, isDeuceReset, finishedSet, liveSplit, displaySets, dayOffset, pragueDate, fsLiveStatus, matchWinner, sealIfDecided, closeFinishedTb, tbWinner, tbTarget, parseSofaScore, map365Points, reportedServer, tbNow, tbView, applyLive, MIN_HISTORY, RANK_ELO, TOUR_PRIOR
   };
