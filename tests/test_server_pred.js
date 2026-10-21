@@ -139,3 +139,21 @@ liveCalc(step);
 assert.strictEqual(TL.liveSplit(step.sets, 'live').cur.join(':'), '0:1');
 assert.ok(Math.abs(step.live.match - matchPoint) > 1e-6, 'gem 0:1 musí změnit predikci zápasu');
 assert.ok(step.live.game != null && Math.abs(step.live.game - game0) > 1e-6);
+
+// Sloučená karta Cali: body a podávající zůstávají a další bod přepočítá Markov.
+const cali = {
+  id: 'fs-cali', status: 'live', pred: 0.15, g: 'M', best_of: 3, server: 2, srvTrust: 1,
+  sets: [[2, 6], [4, 5]], pts: [2, 3], pts_raw: [30, 40], src_pts: 'Sofascore', _accAt: 1, _lk: 'old',
+  players: [{ name: 'Ficovich J. P.' }, { name: 'Meligeni Alves F.' }], odds: null
+};
+liveCalc(cali);
+assert.ok(cali.live.note.indexOf('nejsou k dispozici') < 0, 'když je podávající, detail nesmí hlásit chybějící body');
+assert.ok(cali.live.game != null);
+const caliBefore = cali.live.match;
+assert.strictEqual(TL.applyLive(cali, { status: 'live', sets: [[2, 6], [5, 5]], src_pts: 'Flashscore' }, { src: 'fs', t0: 20 }, () => true), false);
+assert.strictEqual(JSON.stringify(cali.pts_raw), JSON.stringify([30, 40]));
+assert.strictEqual(cali.server, 2);
+assert.strictEqual(TL.applyLive(cali, { status: 'live', sets: [[2, 6], [4, 5]], pts: [2, 4], pts_raw: [30, 'A'], server: 2, srvTrust: 1, src_pts: 'Sofascore' }, { src: 'sofascore', t0: 21 }, () => true), true);
+liveCalc(cali);
+assert.ok(Math.abs(cali.live.match - caliBefore) > 1e-6, 'další bod na sloučené kartě musí přepočítat predikci');
+assert.ok(cali.live.game != null);

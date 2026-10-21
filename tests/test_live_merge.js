@@ -301,7 +301,7 @@ assert.ok(neu.every((m, i) => m.server === pbpSrv(i) && m.srvTrust === 3));
   assert.ok(app.includes('TenisLive.liveSplit(d.sets,d.status)'));
   assert.ok(app.includes('sp.done[k-1]'));
   assert.ok(stat.includes('TenisLive.liveSplit'));
-  assert.ok(sw.includes('tenis-v11'));
+  assert.ok(sw.includes('tenis-v12'));
   assert.ok(app.includes('predikce aktualizovány před'));
 }
 
@@ -446,6 +446,8 @@ assert.strictEqual(adv.server, 1);
   assert.strictEqual(TL.samePlayer('Bhamidipaty S. R.', 'Shrivalli Rashmikaa Bhamidipaty'), true);
   assert.strictEqual(TL.samePlayer('Wan I W.', 'I Wen Wan'), true);
   assert.strictEqual(TL.samePlayer('Mushika Mio', 'Mio Mushika'), true);
+  assert.strictEqual(TL.samePlayer('Meligeni Alves F.', 'Felipe Meligeni'), true);
+  assert.strictEqual(TL.samePlayer('Meligeni Alves F.', 'Felipe Alves'), false);
   assert.strictEqual(TL.samePlayer('Yuhan L.', 'Yuhan Liu'), true);
   assert.strictEqual(TL.samePlayer('Zhang S.', 'Zhang Shuai'), true);
   assert.strictEqual(TL.samePlayer('Shi H.', 'Shi Han'), true);
@@ -493,6 +495,35 @@ assert.strictEqual(adv.server, 1);
   assert.ok(src.includes('TenisLive.samePair'));
   assert.ok(src.includes('TenisLive.dedupeMatches'));
   assert.ok(src.includes('TenisLive.samePlayer'));
+}
+
+// Cali po sloučení: Flashscore bez bodů nesmí smazat 30:40 ani podávajícího a další bod se musí přijmout.
+{
+  const fsCard = { id: 'fs-cali', src: 'Flashscore', g: 'M', tournament: 'Cali (Colombia)', status: 'live', best_of: 3, ts: 1000, pred: 0.15, sets: [[2, 6], [4, 5]], pts: null, server: null, srvTrust: 0, _accAt: 1, players: [{ name: 'Ficovich J. P.' }, { name: 'Meligeni Alves F.' }] };
+  const sofa = { id: 'ss-cali', src: 'Sofascore', g: 'M', tournament: 'Cali, Colombia', status: 'live', best_of: 3, ts: 1000, ssid: 42, sets: [[2, 6], [4, 5]], pts: [2, 3], pts_raw: [30, 40], server: 2, srvTrust: 1, srv_src: 'firstToServe', src_pts: 'Sofascore', players: [{ name: 'Juan Pablo Ficovich' }, { name: 'Felipe Meligeni Alves' }] };
+  let card = TL.dedupeMatches([fsCard, sofa])[0];
+  assert.strictEqual(card.id, 'fs-cali');
+  assert.strictEqual(JSON.stringify(card.sets), JSON.stringify([[2, 6], [4, 5]]));
+  assert.strictEqual(JSON.stringify(card.pts), JSON.stringify([2, 3]));
+  assert.strictEqual(JSON.stringify(card.pts_raw), JSON.stringify([30, 40]));
+  assert.strictEqual(card.server, 2);
+  assert.strictEqual(card.ssid, 42);
+  assert.strictEqual(TL.applyLive(card, { status: 'live', sets: [[2, 6], [5, 5]], src_pts: 'Flashscore' }, { src: 'fs', t0: 50 }, () => true), false);
+  assert.strictEqual(JSON.stringify(card.sets), JSON.stringify([[2, 6], [4, 5]]));
+  assert.strictEqual(JSON.stringify(card.pts_raw), JSON.stringify([30, 40]));
+  assert.strictEqual(card.server, 2);
+  assert.strictEqual(TL.applyLive(card, { status: 'live', sets: [[2, 6], [4, 5]], pts: [3, 3], pts_raw: [40, 40], server: 1, srvTrust: 1, srv_src: 'firstToServe', src_pts: 'Sofascore' }, { src: 'sofascore', t0: 60 }, () => true), true);
+  assert.strictEqual(JSON.stringify(card.pts_raw), JSON.stringify([40, 40]));
+  assert.strictEqual(card.server, 1);
+  assert.strictEqual(TL.applyLive(card, { status: 'live', sets: [[2, 6], [5, 5]], pts: [0, 1], pts_raw: [0, 15], server: 2, srvTrust: 1, srv_src: 'firstToServe', src_pts: 'Sofascore' }, { src: 'sofascore', t0: 70 }, () => true), true);
+  assert.strictEqual(JSON.stringify(card.sets), JSON.stringify([[2, 6], [5, 5]]));
+  assert.strictEqual(JSON.stringify(card.pts_raw), JSON.stringify([0, 15]));
+  assert.strictEqual(card.server, 2);
+  const opened = { status: 'live', sets: [[6, 3], [6, 7]], pts: [1, 0], pts_raw: [15, 0], server: 1, srvTrust: 1, best_of: 3, _accAt: 1 };
+  assert.strictEqual(TL.applyLive(opened, { status: 'live', sets: [[6, 3], [6, 7], [0, 0]], src_pts: 'Flashscore' }, { src: 'fs', t0: 80 }, () => true), true);
+  assert.strictEqual(JSON.stringify(opened.sets), JSON.stringify([[6, 3], [6, 7], [0, 0]]));
+  assert.strictEqual(JSON.stringify(opened.pts), JSON.stringify([1, 0]));
+  assert.strictEqual(opened.server, 1);
 }
 
 console.log('test_live_merge ok; old snapshots', oldUnique.size, 'stable after fix');

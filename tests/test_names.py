@@ -17,6 +17,8 @@ def test_cali_names_are_one_pair_and_tournament():
     assert S.same_player("Ryan Ziegann S.", "Sam Ryan Ziegann")
     assert S.same_player("Bhamidipaty S. R.", "Shrivalli Rashmikaa Bhamidipaty")
     assert S.same_player("Wan I W.", "I Wen Wan")
+    assert S.same_player("Meligeni Alves F.", "Felipe Meligeni")
+    assert not S.same_player("Meligeni Alves F.", "Felipe Alves")
     assert S.same_player("Yuhan L.", "Yuhan Liu")
     assert S.same_player("Zhang S.", "Zhang Shuai")
     assert S.same_player("Shi H.", "Shi Han")

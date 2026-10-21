@@ -117,11 +117,16 @@ def same_player(a, b):
         full_sig = set(full["sig"])
         last = trail["surnames"][-1] if trail["surnames"] else ""
         primary = bool(last) and last == (full["surnames"][0] if full["surnames"] else "") and all(t in full_sig for t in trail["surnames"])
+        compound = bool(trail["surnames"]) and trail["surnames"][0] == (full["surnames"][0] if full["surnames"] else "")
         asian = (not full["has_particle"] and len(trail["surnames"]) == 1 and not trail["given"]
                  and len(full["given"]) == 1 and len(full["surnames"]) == 1
                  and trail["surnames"][0] == full["given"][0]
                  and trail["initials"] and trail["initials"][0] == full["surnames"][0][0])
-        if primary:
+        if primary or compound:
+            spelled = set(trail["surnames"] + trail["given"])
+            need = [g[0] for g in full["given"] if g not in spelled and not any(g.startswith(t) and len(t) >= 3 for t in trail["given"])]
+            if not _assign_initials(need, trail["initials"]):
+                return False
             if not _assign_initials(trail["initials"], full["given"] + full["initials"]):
                 return False
             if trail["given"] and not _prefix_given(trail["given"], full["given"]):

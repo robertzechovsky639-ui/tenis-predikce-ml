@@ -127,11 +127,16 @@
       const fullSig = new Set(full.sig);
       const last = trail.surnames[trail.surnames.length - 1];
       const primary = !!last && last === full.surnames[0] && trail.surnames.every(t => fullSig.has(t));
+      // 'Meligeni Alves F.' je totéž co 'Felipe Meligeni': první příjmení sedí, zbytek složeného jména může chybět.
+      const compound = !!trail.surnames[0] && trail.surnames[0] === full.surnames[0];
       const asian = !full.hasParticle && trail.surnames.length === 1 && trail.given.length === 0
         && full.given.length === 1 && full.surnames.length === 1
         && trail.surnames[0] === full.given[0]
         && trail.initials.length >= 1 && trail.initials[0] === full.surnames[0][0];
-      if (primary) {
+      if (primary || compound) {
+        const spelled = new Set(trail.surnames.concat(trail.given));
+        const need = full.given.filter(g => !spelled.has(g) && !trail.given.some(t => g.startsWith(t) && t.length >= 3)).map(g => g[0]);
+        if (!assignInitials(need, trail.initials)) return false;
         if (!assignInitials(trail.initials, full.given.concat(full.initials))) return false;
         if (trail.given.length && !prefixGiven(trail.given, full.given)) return false;
         return assignInitials(full.initials, trail.initials.concat(trail.given, trail.surnames));
@@ -633,6 +638,12 @@
     const deuce = rel < 0 && !stale && isDeuceReset(m.pts, upd.pts) && sameSrc && token && token.t0 > (m._accAt || 0);
     if (rel < 0 && !deuce) return false;
     if (stale && rel <= 0) return false;
+    // Flashscore a ESPN často pošlou jen gemy. To nesmí smazat body a podávajícího ze Sofascore/365,
+    // jinak se další bod už nepřijme a živá predikce zůstane bez gemu.
+    if (upd.pts == null && m.pts != null && upd.status !== 'finished') {
+      const setRel = cmpScore(m.sets, null, upd.sets, null);
+      if (setRel > 0 && !onlyOpenedSet(m.sets, upd.sets)) return false;
+    }
     const setsChanged = JSON.stringify(normSets(m.sets)) !== JSON.stringify(normSets(upd.sets));
     if (!setsChanged && isAdvAfterDeuce(m.pts, upd.pts)) {
       const other = m.src_pts && upd.src_pts && m.src_pts !== upd.src_pts;
