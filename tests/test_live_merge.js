@@ -301,7 +301,7 @@ assert.ok(neu.every((m, i) => m.server === pbpSrv(i) && m.srvTrust === 3));
   assert.ok(app.includes('TenisLive.liveSplit(d.sets,d.status)'));
   assert.ok(app.includes('sp.done[k-1]'));
   assert.ok(stat.includes('TenisLive.liveSplit'));
-  assert.ok(sw.includes('tenis-v9'));
+  assert.ok(sw.includes('tenis-v10'));
   assert.ok(app.includes('predikce aktualizovány před'));
 }
 
