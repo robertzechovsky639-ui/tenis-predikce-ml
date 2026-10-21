@@ -55,7 +55,14 @@ const surKey = n => { n = String(n || '').trim(); const m = n.match(/^(.*?)\s+[A
 const pairKey = (a, b) => [surKey(a), surKey(b)].sort().join('|');
 const lastTok = n => { n = String(n || '').trim(); const m = n.match(/^(.*?)\s+[A-Z][\w\-]*\.$/); const t = (m ? m[1] : n).split(/[\s\-]+/); return norm(t[t.length - 1]) };
 const pairKey2 = (a, b) => '~' + [lastTok(a), lastTok(b)].sort().join('|');
-function findPair(g, a, b) { return ST.byPair[g + pairKey(a, b)] || ST.byPair[g + pairKey2(a, b)] }
+function findPair(g, a, b) {
+  const hits = ST.all.filter(m => m.g === g && TenisLive.samePair(m.players[0].name, m.players[1].name, a, b));
+  if (!hits.length) return null;
+  const live = hits.filter(m => m.status === 'live');
+  const open = hits.filter(m => m.status !== 'finished');
+  const pool = live.length ? live : open.length ? open : hits;
+  return pool.reduce((x, y) => TenisLive.preferKeep(x, y));
+}
 function indexM(m) { ST.byPair[m.g + pairKey(m.players[0].name, m.players[1].name)] = m; const k2 = m.g + pairKey2(m.players[0].name, m.players[1].name); if (!ST.byPair[k2] || ST.byPair[k2].status === 'finished') ST.byPair[k2] = m }
 
 // ---------- data ----------
@@ -76,7 +83,9 @@ async function loadStatic() { const r = await fetch('data/matches.json', { cache
   for (const id in old) if ((id.startsWith('ss-') || id.startsWith('s365-')) && !findPair(old[id].g, old[id].players[0].name, old[id].players[1].name)) { ST.all.push(old[id]); ST.byId[id] = old[id]; indexM(old[id]) }
   ST.fromCache = false; cacheSave(); _cT = 0 }
 function applyData(d) {
-  ST.status = d.status; ST.generated = d.generated; ST.all = d.matches; ST.byId = {}; ST.byPair = {};
+  ST.status = d.status; ST.generated = d.generated; ST.byId = {}; ST.byPair = {};
+  const rows = (d.matches || []).map(m => { const t = TenisLive.canonTournament(m.tournament); if (t) m.tournament = t; return m; });
+  ST.all = TenisLive.dedupeMatches(rows);
   for (const m of ST.all) { TenisLive.sealIfDecided(m); m.day = m.status === 'live' ? 0 : dayOf(m.ts); ST.byId[m.id] = m; indexM(m) } }
 function liveKey(m) { let s = ''; const sets = m.sets || []; for (let i = 0; i < sets.length; i++) s += sets[i][0] + '-' + sets[i][1] + ','; const pts = m.pts; const sp = TenisLive.liveSplit(sets, m.status); const cur = sp.cur ? sp.cur[0] + ':' + sp.cur[1] : ''; return m.pred + '|' + (m.best_of || 3) + '|' + m.g + '|' + (m.server || 0) + '|' + sp.n + '|' + cur + '|' + s + '|' + (pts ? pts[0] + ':' + pts[1] : '') + '|' + (m.odds ? m.odds.best_a + ':' + m.odds.best_b : ''); }
 function liveCalc(m) { if (m.status !== 'live' || m.pred == null) { m.live = null; m._lk = ''; return }
@@ -118,7 +127,7 @@ async function srcESPN(changed, token, signal) {
     for (const ev of d.events || []) for (const gr of ev.groupings || []) { if (!/singles/.test(gr.grouping?.slug || '')) continue;
       for (const c of gr.competitions || []) { const cs = [...c.competitors].sort((a, b) => (a.order || 0) - (b.order || 0)); if (cs.length !== 2 || !cs[0].athlete || !cs[1].athlete) continue;
         const g = t === 'atp' ? 'M' : 'W'; const m = findPair(g, cs[0].athlete.displayName, cs[1].athlete.displayName); if (!m) continue;
-        const same = lastTok(cs[0].athlete.displayName) === lastTok(m.players[0].name); const type = c.status.type || {}; const st = type.state; const name = type.name || '';
+        const same = TenisLive.samePlayer(cs[0].athlete.displayName, m.players[0].name); const type = c.status.type || {}; const st = type.state; const name = type.name || '';
         const sets = (cs[0].linescores || []).map((s, i) => [s.value | 0, (cs[1].linescores || [])[i]?.value | 0]);
         const ss = same ? sets : sets.map(s => [s[1], s[0]]);
         const terminal = st === 'post' || /CANCELED|POSTPONED|WALKOVER|RETIRED|ABANDONED/.test(name);
@@ -126,7 +135,7 @@ async function srcESPN(changed, token, signal) {
         else if (terminal) consider(m, { status: 'finished', sets: ss, winner: cs[0].winner ? (same ? 1 : 2) : cs[1].winner ? (same ? 2 : 1) : 0 }, token, changed); } } }))) }
 async function src365(changed, token, signal) { const d = await j('https://webws.365scores.com/web/games/current/?appTypeId=5&langId=1&timezoneName=Europe%2FPrague&userCountryId=1&sports=3', null, signal);
   for (const g of d.games || []) { const h = g.homeCompetitor || {}, a = g.awayCompetitor || {}; const m = findPair('M', h.name, a.name) || findPair('W', h.name, a.name); if (!m) continue;
-    const same = lastTok(h.name) === lastTok(m.players[0].name); const stg = {}; for (const s of g.stages || []) stg[s.name] = s;
+    const same = TenisLive.samePlayer(h.name, m.players[0].name); const stg = {}; for (const s of g.stages || []) stg[s.name] = s;
     const sets = Object.keys(stg).filter(k => /^Set \d/.test(k)).sort((a, b) => (+a.match(/\d+/)[0]) - (+b.match(/\d+/)[0])).map(k => [stg[k].homeCompetitorScore | 0, stg[k].awayCompetitorScore | 0]).filter(s => s[0] >= 0 && s[1] >= 0);
     const ss = same ? sets : sets.map(s => [s[1], s[0]]);
     if (g.statusGroup === 3) { const gm = stg.Game || {}; const raw = [gm.homeCompetitorScore ?? 0, gm.awayCompetitorScore ?? 0]; const p = TenisLive.map365Points(raw[0], raw[1]);
@@ -144,11 +153,11 @@ async function srcSofa(changed, token, signal) { const d = await j('https://api.
     const circ = SS_CIRC[e.tournament?.category?.name]; if (!circ) continue; const g = H.gender === 'F' ? 'W' : 'M';
     let m = findPair(g, H.name, A.name);
     if (!m) {
-      m = { id: 'ss-' + e.id, src: 'Sofascore', circuit: circ, g, tournament: e.tournament?.name || '', surface: SS_SURF(e.groundType), round: e.roundInfo?.name || '',
+      m = { id: 'ss-' + e.id, src: 'Sofascore', circuit: circ, g, tournament: TenisLive.canonTournament(e.tournament?.name || ''), surface: SS_SURF(e.groundType), round: e.roundInfo?.name || '',
         qual: /qualif/i.test(e.tournament?.name + ' ' + (e.roundInfo?.name || '')) ? 1 : 0, ts: e.startTimestamp, status: 'live', sets: [], winner: 0, best_of: 3, fs: null,
         players: [{ name: H.name, country: H.country?.alpha3 || '', ranking: H.ranking }, { name: A.name, country: A.country?.alpha3 || '', ranking: A.ranking }], pids: [null, null], pred: null, odds: null, day: 0 };
       ensurePred(m); ST.all.push(m); ST.byId[m.id] = m; indexM(m); changed.add(m.id); ST.added = true; }
-    const same = lastTok(H.name) === lastTok(m.players[0].name); m.ssid = e.id; m.ss_same = same;
+    const same = TenisLive.samePlayer(H.name, m.players[0].name); m.ssid = e.id; m.ss_same = same;
     if (H.ranking) m.players[same ? 0 : 1].ranking ??= H.ranking;
     if (A.ranking) m.players[same ? 1 : 0].ranking ??= A.ranking;
     if (m.pred == null || m.pred_low) { if (ensurePred(m)) changed.add(m.id); }
@@ -221,7 +230,7 @@ async function scheduleFallback(onChange) { const run = async () => { try {
       const cn = (comp[g.competitionId]?.name || '') + ' ' + (g.competitionDisplayName || ''); const rk = (h.rankings || [])[0]?.name || (a.rankings || [])[0]?.name || '';
       const gender = /WTA/.test(rk) || /women|wta/i.test(cn) ? 'W' : 'M'; if (findPair(gender, h.name, a.name)) continue;
       const circ = /challenger/i.test(cn) ? 'Challenger' : /itf/i.test(cn) ? (gender === 'W' ? 'ITF ženy' : 'ITF muži') : gender === 'W' ? 'WTA' : 'ATP';
-      const m = { id: 's365-' + g.id, src: '365scores', circuit: circ, g: gender, tournament: (g.competitionDisplayName || cn).replace(/ - .*$/, ''), surface: 'Hard', round: g.stageName || '',
+      const m = { id: 's365-' + g.id, src: '365scores', circuit: circ, g: gender, tournament: TenisLive.canonTournament((g.competitionDisplayName || cn).replace(/ - .*$/, '')), surface: 'Hard', round: g.stageName || '',
         qual: /qualif/i.test(g.stageName || '') ? 1 : 0, ts: Date.parse(g.startTime) / 1000, status: 'upcoming', sets: [], winner: 0, best_of: 3, fs: null,
         players: [{ name: h.name, country: '' }, { name: a.name, country: '' }], pids: [null, null], pred: null, odds: null };
       m.day = dayOf(m.ts); ensurePred(m); ST.all.push(m); ST.byId[m.id] = m; indexM(m); ch.push(m.id); ST.added = true }
@@ -233,7 +242,7 @@ function health() { const now = Date.now(); return Object.keys(SOURCES).concat([
 const SS_CATS = [3, 6, 72, 785, 213];
 function sofaEventToMatch(e) { const H = e.homeTeam || {}, A = e.awayTeam || {}; if (H.type !== 1 || A.type !== 1) return null;
   const circ = SS_CIRC[e.tournament?.category?.name]; if (!circ) return null; const g = H.gender === 'F' ? 'W' : 'M'; const st = e.status?.type;
-  return { id: 'ss-' + e.id, ssid: e.id, ss_same: true, src: 'Sofascore', circuit: circ, g, tournament: (e.tournament?.name || '').replace(/, (Qualifying|Doubles).*$/, ''), surface: SS_SURF(e.groundType),
+  return { id: 'ss-' + e.id, ssid: e.id, ss_same: true, src: 'Sofascore', circuit: circ, g, tournament: TenisLive.canonTournament((e.tournament?.name || '').replace(/, (Qualifying|Doubles).*$/, '')), surface: SS_SURF(e.groundType),
     round: e.roundInfo?.name || '', qual: /qualif/i.test((e.tournament?.name || '') + ' ' + (e.roundInfo?.name || '')) ? 1 : 0, ts: e.startTimestamp,
     status: st === 'inprogress' ? 'live' : st === 'finished' ? 'finished' : 'upcoming', sets: [], winner: e.winnerCode || 0, best_of: 3, fs: null,
     players: [{ name: H.name, country: H.country?.alpha3 || '', ranking: H.ranking }, { name: A.name, country: A.country?.alpha3 || '', ranking: A.ranking }], pids: [null, null], pred: null, odds: null } }
@@ -243,7 +252,7 @@ async function sofaSchedule(onChange) { const run = async () => { const ch = [];
     await Promise.all(SS_CATS.flatMap(c => days.map(d => j(`https://api.sofascore1.com/api/v1/category/${c}/scheduled-events/${d}`).then(r => { ok++;
       for (const e of r.events || []) { if (e.status?.type !== 'notstarted') continue; const m0 = sofaEventToMatch(e); if (!m0) continue;
         const ex = findPair(m0.g, m0.players[0].name, m0.players[1].name);
-        if (ex) { if (!ex.ssid) { ex.ssid = e.id; ex.ss_same = lastTok(e.homeTeam.name) === lastTok(ex.players[0].name) }
+        if (ex) { if (!ex.ssid) { ex.ssid = e.id; ex.ss_same = TenisLive.samePlayer(e.homeTeam.name, ex.players[0].name) }
           ex.players.forEach((p, i) => { if (p.ranking == null) p.ranking = (ex.ss_same ? m0.players[i] : m0.players[1 - i]).ranking }); if ((ex.pred == null || ex.pred_low) && ensurePred(ex)) ch.push(ex.id); continue }
         m0.day = dayOf(m0.ts); if (m0.day < -2 || m0.day > 2) continue; ensurePred(m0); ST.all.push(m0); ST.byId[m0.id] = m0; indexM(m0); ch.push(m0.id); ST.added = true; ST.ssSchedAdded = (ST.ssSchedAdded || 0) + 1 } }).catch(() => { }))));
     for (const id of ch) { const m = ST.byId[id]; if (m && (m.pred == null || m.pred_low)) ensurePred(m); }

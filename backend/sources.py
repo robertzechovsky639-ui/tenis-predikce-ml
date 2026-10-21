@@ -16,12 +16,151 @@ def norm(s):
     s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode().lower()
     return "".join(re.findall(r"[a-z]+", s))
 
+_PARTICLE = {"de", "da", "di", "du", "van", "von", "del", "dos", "das", "la", "le", "el", "al", "st"}
+
+def name_tokens(name):
+    s = unicodedata.normalize("NFKD", str(name or "")).encode("ascii", "ignore").decode().lower()
+    return [t for t in re.findall(r"[a-z]+", s) if t not in ("jr", "sr")]
+
+def sig_tokens(name):
+    return [t for t in name_tokens(name) if len(t) >= 2 and t not in _PARTICLE]
+
+def _placeholder(name):
+    t = name_tokens(name)
+    raw = "".join(t)
+    return raw in {"tbd", "tba", "bye", "qualifier", "qualifying", "unknown", "player"} or (len(t) == 1 and t[0] in {"tbd", "tba", "bye"})
+
+def _parse_name(name):
+    """Rozdělí jméno na příjmení, křestní a iniciály. 'Ficovich J. P.' i 'J. Pablo Ficovich'."""
+    s = str(name or "").strip()
+    all_t = name_tokens(s)
+    has_particle = any(t in _PARTICLE for t in all_t)
+    initials, given, surnames = [], [], []
+    m = re.match(r"^(.*?)\s+((?:[A-Za-z][\w\-]*\.\s*)+)$", s)
+    if m:
+        for tok in name_tokens(m.group(1)):
+            if tok in _PARTICLE:
+                continue
+            (initials if len(tok) == 1 else surnames).append(tok)
+        for part in m.group(2).split():
+            tok = (name_tokens(part) or [""])[0]
+            if not tok or tok in _PARTICLE:
+                continue
+            (initials if len(tok) == 1 else given).append(tok)
+        return dict(trailing=True, surnames=surnames, initials=initials, given=given, sig=surnames + given, has_particle=has_particle)
+    sig = []
+    for tok in all_t:
+        if tok in _PARTICLE:
+            continue
+        if len(tok) == 1:
+            initials.append(tok)
+        else:
+            sig.append(tok)
+    if sig:
+        surnames.append(sig[-1])
+        given.extend(sig[:-1])
+    return dict(trailing=False, surnames=surnames, initials=initials, given=given, sig=sig, has_particle=has_particle)
+
+def _assign_initials(initials, pool):
+    used = [False] * len(pool)
+
+    def rec(i):
+        if i == len(initials):
+            return True
+        for j, cand in enumerate(pool):
+            if used[j] or not cand or cand[0] != initials[i]:
+                continue
+            used[j] = True
+            if rec(i + 1):
+                return True
+            used[j] = False
+        return False
+
+    return rec(0)
+
+def _prefix_given(abbr, fulls):
+    used = [False] * len(fulls)
+
+    def rec(i):
+        if i == len(abbr):
+            return True
+        for j, cand in enumerate(fulls):
+            if used[j] or not (cand.startswith(abbr[i]) and len(cand) > len(abbr[i])):
+                continue
+            used[j] = True
+            if rec(i + 1):
+                return True
+            used[j] = False
+        return False
+
+    return rec(0)
+
+def same_player(a, b):
+    """Stejný hráč přes iniciály, složené příjmení, pořadí jmen a diakritiku. Čtyřhra a TBD ne."""
+    if _placeholder(a) or _placeholder(b):
+        return False
+    if any(ch in str(x or "") for x in (a, b) for ch in "/&"):
+        return False
+    A, B = _parse_name(a), _parse_name(b)
+    if not A["sig"] or not B["sig"]:
+        return False
+    if A["trailing"] and B["trailing"]:
+        sur = lambda xs: "|".join(sorted(xs))
+        if sur(A["surnames"]) != sur(B["surnames"]):
+            return False
+        if "".join(sorted(A["initials"])) != "".join(sorted(B["initials"])):
+            return False
+        return sur(A["given"]) == sur(B["given"])
+    trail = A if A["trailing"] else B if B["trailing"] else None
+    full = (B if trail is A else A) if trail else None
+    if trail:
+        full_sig = set(full["sig"])
+        last = trail["surnames"][-1] if trail["surnames"] else ""
+        primary = bool(last) and last == (full["surnames"][0] if full["surnames"] else "") and all(t in full_sig for t in trail["surnames"])
+        asian = (not full["has_particle"] and len(trail["surnames"]) == 1 and not trail["given"]
+                 and len(full["given"]) == 1 and len(full["surnames"]) == 1
+                 and trail["surnames"][0] == full["given"][0]
+                 and trail["initials"] and trail["initials"][0] == full["surnames"][0][0])
+        if primary:
+            if not _assign_initials(trail["initials"], full["given"] + full["initials"]):
+                return False
+            if trail["given"] and not _prefix_given(trail["given"], full["given"]):
+                return False
+            return _assign_initials(full["initials"], trail["initials"] + trail["given"] + trail["surnames"])
+        if not asian:
+            return False
+        if not _assign_initials(trail["initials"][1:], [full["surnames"][0], full["given"][0]] + full["initials"]):
+            return False
+        return _assign_initials(full["initials"], trail["initials"] + trail["surnames"])
+    seta, setb = set(A["sig"]), set(B["sig"])
+    equal = seta == setb
+    same_sur = A["surnames"] and A["surnames"][0] == (B["surnames"][0] if B["surnames"] else "")
+    if not (equal or (same_sur and (seta <= setb or setb <= seta))):
+        return False
+    return _assign_initials(A["initials"], B["sig"] + B["initials"]) and _assign_initials(B["initials"], A["sig"] + A["initials"])
+
+def same_pair(a1, a2, b1, b2):
+    return (same_player(a1, b1) and same_player(a2, b2)) or (same_player(a1, b2) and same_player(a2, b1))
+
 def surname_key(name):
-    """'Jannik Sinner' / 'Sinner J.' / 'sinner-jannik' -> 'sinner' (pro párování mezi zdroji)."""
-    n = name.strip()
-    m = re.match(r"^(.*?)\s+[A-Z][\w\-]*\.$", n)
-    if m: return norm(m.group(1))
-    return norm(n.split()[-1]) if n else ""
+    """Rozlišující příjmení: 'Sinner J.' i 'Jannik Sinner' -> sinner, 'Meligeni Alves F.' i 'F. Meligeni Alves' -> alves."""
+    long = sig_tokens(name)
+    return long[-1] if long else ""
+
+def canon_tournament(name):
+    """'Cali (Colombia)' i 'Cali, Colombia' -> 'Cali'. Zbytek názvu nechá."""
+    s = str(name or "").strip()
+    if not s:
+        return ""
+    if "," in s:
+        s = s.split(",", 1)[0]
+    s = re.sub(r"\([^)]*\)", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    prev = None
+    while prev != s:
+        prev = s
+        s = re.sub(r"^(?i:atp|wta|itf|challenger|men|women)\s+", "", s).strip()
+    return s
 
 def espn(tour):
     d = json.loads(_get(ESPN.format(t=tour)))
@@ -65,23 +204,33 @@ def flashscore(day_offset):
 
 def merge(espn_list, fs_list):
     """ESPN je primární. Flashscore zápas stejné dvojice jen doplní povrch + id pro kurzy; ostatní FS zápasy se přidají."""
-    key = lambda m: (m["g"], frozenset(surname_key(p["name"]) for p in m["players"]))
-    idx = {}
-    for m in fs_list: idx.setdefault(key(m), m)
     used = set(); out = []
     for m in espn_list:
-        f = idx.get(key(m))
+        f = None
+        for cand in fs_list:
+            if cand["id"] in used or cand.get("g") != m.get("g"):
+                continue
+            if same_pair(m["players"][0]["name"], m["players"][1]["name"], cand["players"][0]["name"], cand["players"][1]["name"]):
+                f = cand
+                break
         if f:
             used.add(f["id"]); m["surface"] = f["surface"]
-            same = surname_key(f["players"][0]["name"]) == surname_key(m["players"][0]["name"])
+            same = same_player(m["players"][0]["name"], f["players"][0]["name"])
             m["fs"] = dict(id=f["fs"]["id"], pids=f["fs"]["pids"] if same else f["fs"]["pids"][::-1])
             for p, q in zip(m["players"], f["players"] if same else f["players"][::-1]): p["slug"] = q.get("slug")
             if m["status"] == "live" and f.get("sets"):
                 fs_sets = f["sets"] if same else [list(reversed(s)) for s in f["sets"]]
                 if SM.cmp_score(m["sets"], None, fs_sets, None) > 0 and SM.norm_sets(fs_sets) != SM.norm_sets(m["sets"]):
                     m["sets"] = [[int(a), int(b)] for a, b in fs_sets]
-        m["surface"] = m["surface"] or "Hard"; out.append(m)
-    out += [m for m in fs_list if m["id"] not in used]
+        m["surface"] = m["surface"] or "Hard"
+        label = canon_tournament(m.get("tournament"))
+        if label: m["tournament"] = label
+        out.append(m)
+    for m in fs_list:
+        if m["id"] in used: continue
+        label = canon_tournament(m.get("tournament"))
+        if label: m["tournament"] = label
+        out.append(m)
     return out
 
 ODDS = "https://global.ds.lsapp.eu/odds/pq_graphql?_hash=oce&eventId={id}&projectId=2&geoIpCode=CZ&geoIpSubdivisionCode=CZ10"
@@ -116,8 +265,8 @@ def map_point(raw):
     return PT[n] if n in PT else n
 
 def live365():
-    """Doplněk pro živé zápasy: body v gemu a podávající (365scores, veřejný JSON). Klíč = dvojice příjmení."""
-    d = json.loads(_get(S365)); out = {}
+    """Doplněk pro živé zápasy: body v gemu a podávající (365scores, veřejný JSON). Párování je podle jmen, ne jen příjmení."""
+    d = json.loads(_get(S365)); out = []
     for g in d.get("games", []):
         if g.get("statusGroup") != 3: continue
         h, a = g.get("homeCompetitor", {}), g.get("awayCompetitor", {})
@@ -139,6 +288,7 @@ def live365():
         if adv and pts not in ((4, 3), (3, 4)):
             pts = (4, 3) if int(raw_h) == 50 else (3, 4)
         srv = 1 if h.get("inPossession") else 2 if a.get("inPossession") else None
-        key = frozenset((surname_key(h.get("name", "")), surname_key(a.get("name", ""))))
-        out[key] = dict(pts=pts, server=srv, sets=sets, home=surname_key(h.get("name", "")), pts_raw=[gm.get("homeCompetitorScore"), gm.get("awayCompetitorScore")])
+        out.append(dict(pts=pts, server=srv, sets=sets, home=surname_key(h.get("name", "")),
+                        home_name=h.get("name") or "", away_name=a.get("name") or "",
+                        pts_raw=[gm.get("homeCompetitorScore"), gm.get("awayCompetitorScore")]))
     return out
