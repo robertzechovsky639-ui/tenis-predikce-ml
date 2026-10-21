@@ -40,7 +40,11 @@ const MK = (() => {
     for (let i = 0; i < 30; i++) { const d = (lo + hi) / 2; if (matchP(base + d, base - d, 0, 0, 0, 0, true, [0, 0], bo) < p) lo = d; else hi = d }
     const d = (lo + hi) / 2; const out = [base + d, base - d]; spCache.set(key, out); return out;
   }
-  function live(p, done, cur, pts, server, female, bo, tbTo, matchTb) { const [pa, pb] = serveProbs(p, female, bo); const sa = done.filter(s => s[0] > s[1]).length, sb = done.length - sa;
+  // Bayes: bod na podání z odehraných bodů zápasu (k = 400, stejné jako backend/markov.py BAYES_K)
+  const BAYES_K = 400;
+  function bayesServe(p0, st, k = BAYES_K) { if (!st) return p0; const n = +st[0] || 0, w = +st[1] || 0; if (n <= 0 || w < 0 || w > n) return p0; return Math.min(Math.max((k * p0 + w) / (k + n), .3), .95) }
+  function live(p, done, cur, pts, server, female, bo, tbTo, matchTb, srvStats) { let [pa, pb] = serveProbs(p, female, bo);
+    if (srvStats) { pa = bayesServe(pa, srvStats[0]); pb = bayesServe(pb, srvStats[1]) } const sa = done.filter(s => s[0] > s[1]).length, sb = done.length - sa;
     const srv = server ? [server === 1] : [true, false]; const avg = f => srv.reduce((t, s) => t + f(s), 0) / srv.length;
     const tb = !!(matchTb || (cur[0] === 6 && cur[1] === 6));
     let target = tbTo;
@@ -48,7 +52,7 @@ const MK = (() => {
     const setOf = s => matchTb ? tiebreak(pa, pb, pts[0], pts[1], aServedFirst(s, pts), target) : setP(pa, pb, cur[0], cur[1], s, pts, target);
     return { match: avg(s => matchP(pa, pb, sa, sb, cur[0], cur[1], s, pts, bo || 3, target, !!matchTb)), set: avg(setOf),
       game: server && !tb ? (server === 1 ? game(pa, pts[0], pts[1]) : 1 - game(pb, pts[1], pts[0])) : null, serve_a: pa, serve_b: pb, hold_a: game(pa), hold_b: game(pb) } }
-  return { game, setP, matchP, serveProbs, live };
+  return { game, setP, matchP, serveProbs, live, bayesServe, BAYES_K };
 })();
 const norm = s => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]/g, '');
 const surKey = n => { n = String(n || '').trim(); const m = n.match(/^(.*?)\s+[A-Z][\w\-]*\.$/); if (m) return norm(m[1]); const t = n.split(/\s+/); return norm(t[t.length - 1]) };
@@ -87,7 +91,7 @@ function applyData(d) {
   const rows = (d.matches || []).map(m => { const t = TenisLive.canonTournament(m.tournament); if (t) m.tournament = t; return m; });
   ST.all = TenisLive.dedupeMatches(rows);
   for (const m of ST.all) { TenisLive.sealIfDecided(m); m.day = m.status === 'live' ? 0 : dayOf(m.ts); ST.byId[m.id] = m; indexM(m) } }
-function liveKey(m) { let s = ''; const sets = m.sets || []; for (let i = 0; i < sets.length; i++) s += sets[i][0] + '-' + sets[i][1] + ','; const pts = m.pts; const sp = TenisLive.liveSplit(sets, m.status); const cur = sp.cur ? sp.cur[0] + ':' + sp.cur[1] : ''; return m.pred + '|' + (m.best_of || 3) + '|' + m.g + '|' + (m.server || 0) + '|' + sp.n + '|' + cur + '|' + s + '|' + (pts ? pts[0] + ':' + pts[1] : '') + '|' + (m.odds ? m.odds.best_a + ':' + m.odds.best_b : ''); }
+function liveKey(m) { let s = ''; const sets = m.sets || []; for (let i = 0; i < sets.length; i++) s += sets[i][0] + '-' + sets[i][1] + ','; const pts = m.pts; const sp = TenisLive.liveSplit(sets, m.status); const cur = sp.cur ? sp.cur[0] + ':' + sp.cur[1] : ''; return m.pred + '|' + (m.best_of || 3) + '|' + m.g + '|' + (m.server || 0) + '|' + sp.n + '|' + cur + '|' + s + '|' + (pts ? pts[0] + ':' + pts[1] : '') + '|' + (m.odds ? m.odds.best_a + ':' + m.odds.best_b : '') + '|' + (m.srv_stats ? m.srv_stats.join(':') : ''); }
 function liveCalc(m) { if (m.status !== 'live' || m.pred == null) { m.live = null; m._lk = ''; return }
   const lk = liveKey(m); if (m.live && m._lk === lk) return; m._lk = lk;
   const pts = m.pts || [0, 0]; const bo = m.best_of || 3;
@@ -100,8 +104,9 @@ function liveCalc(m) { if (m.status !== 'live' || m.pred == null) { m.live = nul
     if (view) tbTo = view.target;
     if (done.length >= bo - 1) tbTo = 10;
   }
-  const l = MK.live(m.pred, done, cur, pts, m.server, m.g === 'W', m.best_of, tbTo, matchTb);
-  l.note = m.server ? 'stav bod po bodu (365scores, v prohlížeči): sety, gemy, body a podávající' : (m.pts ? 'body ze zdroje, podávající neznámý (průměr)' : 'body/podání nejsou k dispozici – stav = sety a gemy, podávající neznámý (průměr)');
+  const l = MK.live(m.pred, done, cur, pts, m.server, m.g === 'W', m.best_of, tbTo, matchTb, m.srv_stats);
+  l.note_stats = m.srv_stats ? `body na podání v zápase ${m.srv_stats[0][1]}/${m.srv_stats[0][0]} : ${m.srv_stats[1][1]}/${m.srv_stats[1][0]}` : '';
+  l.note = (m.srv_stats ? l.note_stats + '; ' : '') + (m.server ? 'stav bod po bodu (365scores, v prohlížeči): sety, gemy, body a podávající' : (m.pts ? 'body ze zdroje, podávající neznámý (průměr)' : 'body/podání nejsou k dispozici – stav = sety a gemy, podávající neznámý (průměr)'));
   m.live = l; m.value = null; if (m.odds && m.odds_t > Date.now() - 90000) { const p = l.match; m.value = p * m.odds.best_a - 1 > .05 ? 'A' : (1 - p) * m.odds.best_b - 1 > .05 ? 'B' : null } }
 async function jDirect(u, h, signal) { const r = await fetch(u, { headers: h || {}, cache: 'no-store', signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json() }
 const _jobs = new Map(); let _wj = null, _jid = 0;
@@ -221,6 +226,25 @@ async function sofaDetail(onChange) { let i = 0;
         if (ch.length) onChange(ch) } ST.srcOk.sofaDetail = Date.now(); delete ST.srcOk.sofaDetailErr }
     catch (e) { ST.srcOk.sofaDetailErr = String(e); wait = 5000 }
     setTimeout(step, wait) }; setTimeout(step, 3000) }
+// ---------- body na podání z live statistik Sofascore (jen viditelné živé zápasy) -> Bayes v živé predikci ----------
+// Samostatná smyčka: nesahá na skóre ani slučování zdrojů, jen doplní m.srv_stats a přepočítá živou šanci.
+function parseSofaStats(d, same) { const all = (d.statistics || []).find(p => p.period === 'ALL') || (d.statistics || [])[0]; if (!all) return null; const it = {};
+  for (const g of all.groups || []) for (const x of g.statisticsItems || []) it[x.key || x.name] = x;
+  const f = it.firstServePointsAccuracy || it['First serve points'], s = it.secondServePointsAccuracy || it['Second serve points'];
+  if (!f || !s) { const fr = it.firstReturnPoints, sr = it.secondReturnPoints; if (!fr || !sr) return null;  // ITF: jen returny -> podání soupeře
+    const ret = side => [(fr[side + 'Total'] | 0) + (sr[side + 'Total'] | 0), (fr[side + 'Value'] | 0) + (sr[side + 'Value'] | 0)];
+    const rh = ret('home'), ra = ret('away'), h = [ra[0], ra[0] - ra[1]], aw = [rh[0], rh[0] - rh[1]];
+    if (!(h[0] > 0 && aw[0] > 0)) return null; return same ? [h, aw] : [aw, h] }
+  const n = side => (f[side + 'Total'] | 0) + (s[side + 'Total'] | 0), w = side => (f[side + 'Value'] | 0) + (s[side + 'Value'] | 0);
+  const h = [n('home'), w('home')], a = [n('away'), w('away')]; if (!(h[0] > 0 && a[0] > 0)) return null; return same ? [h, a] : [a, h] }
+async function sofaStats(onChange) { let i = 0;
+  const step = async () => { try {
+      const open = (typeof S !== 'undefined' && S.detail && S.detail.id) || null; const onScreen = new Set([...document.querySelectorAll('#view .m')].map(el => el.dataset.id));
+      const L = ST.all.filter(m => m.status === 'live' && m.ssid && !m.no_stats && (m.id === open || onScreen.has(m.id)) && !(m.stats_t > Date.now() - 20000));
+      if (L.length && !document.hidden) { const m = L[i++ % L.length]; m.stats_t = Date.now();
+        const d = await j(`https://api.sofascore1.com/api/v1/event/${m.ssid}/statistics`).catch(e => { if (/404/.test(e)) m.no_stats = true; return {} });
+        const st = parseSofaStats(d, m.ss_same !== false); if (st && JSON.stringify(st) !== JSON.stringify(m.srv_stats)) { m.srv_stats = st; liveCalc(m); onChange([m.id]) } } } catch (e) { }
+    setTimeout(step, 4000) }; setTimeout(step, 5000) }
 // ---------- záložní rozpis z prohlížeče (365scores allscores dnes + zítra) s predikcí LR, když export z Actions zastará ----------
 async function scheduleFallback(onChange) { const run = async () => { try {
     const ch = []; const fmt = p => `${String(p.d).padStart(2, '0')}/${String(p.m).padStart(2, '0')}/${p.y}`;
@@ -281,7 +305,7 @@ async function loadRanks(onChange) {
 }
 const SOURCES = { sofascore: { fn: srcSofa, base: 1500 }, s365: { fn: src365, base: 2500 }, espn: { fn: srcESPN, base: 4000 } };
 function startSources(onChange) { const plan = pollPlan(); SOURCES.sofascore.base = plan.sofa; SOURCES.s365.base = plan.s365; SOURCES.espn.base = plan.espn;
-  sofaDetail(onChange); scheduleFallback(onChange); ensurePlayers().then(() => { sofaSchedule(onChange); loadRanks(onChange); }); const lag = plan.lag;
+  sofaDetail(onChange); sofaStats(onChange); scheduleFallback(onChange); ensurePlayers().then(() => { sofaSchedule(onChange); loadRanks(onChange); }); const lag = plan.lag;
   for (const [k, Src] of Object.entries(SOURCES)) { Src.iv = Src.base; Src.lat = [];
   const run = async () => { const changed = new Set(), t0 = performance.now();
     const plan = pollPlan(); Src.base = k === 'sofascore' ? plan.sofa : k === 's365' ? plan.s365 : plan.espn;
