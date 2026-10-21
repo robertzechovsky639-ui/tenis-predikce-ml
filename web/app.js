@@ -124,7 +124,7 @@ function bind(){document.querySelectorAll('.days button').forEach(b=>b.onclick=(
  $('#nbtn')&&($('#nbtn').onclick=askNotif);$('#favt')&&($('#favt').onclick=()=>{S.favOnly=!S.favOnly;render()});
  document.querySelectorAll('.m[data-id]').forEach(x=>x.onclick=()=>openDetail(x.dataset.id));
  if(S.view==='predikce'){let surf='Hard';const go=async()=>{const a=$('#pa').dataset.id,b=$('#pb').dataset.id;if(!a||!b)return;
-   const r=await api(`/api/predict?a=${a}&b=${b}&surface=${surf}`);$('#pres').innerHTML=`<div class="big2" style="margin-top:12px">${pct(r.p)} : ${pct(1-r.p)}</div><div class="note">Elo ${pct(r.elo_p)} · ${r.h2h[0]==='?'?'H2H v této verzi nepočítáme':'H2H '+r.h2h.join(':')} · fér kurzy ${f2(1/r.p)} / ${f2(1/(1-r.p))}</div>${r.factors.map(f=>`<div class="fac"><span>${f.label}</span><span class="${f.favors}">${f.favors==='A'?r.cards[0].name:r.cards[1].name}</span></div>`).join('')}`};
+   const r=await api(`/api/predict?a=${a}&b=${b}&surface=${surf}`);$('#pres').innerHTML=`<div class="big2" style="margin-top:12px">${pct(r.p)} : ${pct(1-r.p)}</div>${explainBox(r.factors,r.p,[r.cards[0].name,r.cards[1].name],surf)}<div class="note">Elo ${pct(r.elo_p)} · ${r.h2h[0]==='?'?'H2H v této verzi nepočítáme':'H2H '+r.h2h.join(':')} · fér kurzy ${f2(1/r.p)} / ${f2(1/(1-r.p))}</div>${r.factors.map(f=>`<div class="fac"><span>${f.label}</span><span class="${f.favors}">${f.favors==='A'?r.cards[0].name:r.cards[1].name}</span></div>`).join('')}`};
   pickBox($('#pa'),$('#pal'),go);pickBox($('#pb'),$('#pbl'),go);document.querySelectorAll('#psurf button').forEach(b=>b.onclick=()=>{surf=b.dataset.s;document.querySelectorAll('#psurf button').forEach(x=>x.classList.toggle('on',x===b));go()})}
  if(S.view==='hraci'){const i=$('#ps');let t;i.oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{const r=i.value.length>1?await api('/api/players?q='+encodeURIComponent(i.value)):[];
   $('#plist').innerHTML='<div class="box">'+(r.map(p=>`<div class="fac"><span><button class="pstar ${S.favP.has(p.id)?'on':''}" data-pid="${esc(p.id)}" title="Oblíbený hráč">${S.favP.has(p.id)?'★':'☆'}</button> ${esc(p.name)} <small class="na">${p.g==='M'?'ATP/ITF':'WTA/ITF'}</small></span><span class="na">Elo ${p.elo} · ${p.rank?'#'+p.rank:'bez žebř.'} · ${p.matches} záp.</span></div>`).join('')||'<div class="note">Nic nenalezeno</div>')+'</div>';
@@ -165,10 +165,28 @@ function tPrehled(d){if(d.pred==null)return `<div class="box note">Pro tento zá
   h+=`<p class="note">${esc(L.note)}.</p>`}
  h+='</div>';
  if(d.markov)h+=`<div class="box"><h3>PODÁNÍ A GEMY (MARKOV)</h3><table><tr><th></th><th>${esc(nA(d))}</th><th>${esc(nB(d))}</th></tr><tr><td>Bod na podání</td><td>${pct(d.markov.serve_a)}</td><td>${pct(d.markov.serve_b)}</td></tr><tr><td>Udržení podání</td><td>${pct(d.markov.hold_a)}</td><td>${pct(d.markov.hold_b)}</td></tr><tr><td>Výhra 1. setu</td><td>${pct(d.markov.set1)}</td><td>${pct(1-d.markov.set1)}</td></tr></table></div>`;
+ if(d.live)h+=liveTipsBox(d);
+ h+=explainBox(d.factors,d.pred,[nA(d),nB(d)],d.surface,d.factors_src);
  return h}
+function explainBox(factors,p,names,surf,src){if(p==null||!factors||!factors.length)return '';const rs=Explain.rows(factors,p,names,surf);if(!rs.length)return '';const mx=Math.max(...rs.map(r=>r.pp),1);
+ return `<div class="box xpl"><h3>PROČ TENTO TIP</h3><p class="note">${esc(Explain.summary(rs,p,names))}</p>${rs.map(r=>`<div class="xr"><div class="xl"><b>${esc(r.label)}</b><small>${esc(r.who)}${r.text?' · '+esc(r.text):''}</small></div><div class="xb ${r.side==='A'?'pa':'pb'}"><i style="width:${Math.max(6,r.pp/mx*100)}%"></i></div><span class="xv">+${r.pp.toFixed(1).replace('.',',')} b.</span></div>`).join('')}
+ <p class="note">Velikost = o kolik procentních bodů faktor posouvá šanci zvýhodněného hráče (vysvětlitelná logistická regrese${src?', spočítáno v '+esc(src)+'i':''}); výsledná šance je z LightGBM.</p></div>`}
+function liveTipsBox(d){const L=d.live;if(!L)return '';const pa=L.serve_a??L.pa,pb=L.serve_b??L.pb;if(pa==null||pb==null)return '';
+ const bo=d.best_of||3,pts=d.pts||[0,0],view=TenisLive.tbView(d.sets,pts,bo,d.match_tb);let done,cur,matchTb=false,tbTo=null;
+ if(view&&view.kind==='match'){done=TenisLive.liveSplit(d.sets,'finished').done;cur=[0,0];matchTb=true;tbTo=view.target}else{const sp=TenisLive.liveSplit(d.sets,'live');done=sp.done;cur=sp.cur||[0,0];if(view)tbTo=view.target;if(done.length>=bo-1)tbTo=10}
+ let t;try{t=InTips.compute({pa,pb,done,cur,pts:d.pts||[0,0],server:d.server||null,bo,tbTo,matchTb})}catch(e){return ''}
+ const [a,b]=[nA(d),nB(d)],row=(l,x,y)=>`<tr><td>${l}</td><td class="pa">${x}</td><td class="pb">${y}</td></tr>`,ou=(x)=>row(`Gemů ${String(x.line).replace('.',',')}`,'více '+pct(x.over),'méně '+pct(1-x.over));
+ let h=`<div class="box ltips"><h3>TIPY V PRŮBĚHU</h3><table><tr><th></th><th>${esc(a)}</th><th>${esc(b)}</th></tr>`;
+ h+=row(matchTb?'Vyhraje supertiebreak':`Vyhraje ${done.length+1}. set`,pct(t.cur.a),pct(1-t.cur.a));
+ if(!matchTb)h+=row(`Tiebreak v ${done.length+1}. setu`,'ano '+pct(t.cur.tb),'ne '+pct(1-t.cur.tb));
+ if(!matchTb)h+=t.cur.lines.map(ou).join('');
+ if(t.next){h+=row(`Vyhraje ${done.length+2}. set`,pct(t.next.a),pct(1-t.next.a));h+=row(`Tiebreak v ${done.length+2}. setu`,'ano '+pct(t.next.tb),'ne '+pct(1-t.next.tb))}
+ h+=`<tr><td colspan="3" class="na">Celý zápas · čekáme ${t.match.exp.toFixed(1).replace('.',',')} gemů</td></tr>`+t.match.lines.map(ou).join('');
+ if(t.match.decider<1&&t.match.decider>0)h+=row('Rozhodující set','ano '+pct(t.match.decider),'ne '+pct(1-t.match.decider));
+ return h+`</table><p class="note">Z Markova modelu bod po bodu (bod na podání ${pct(pa)} : ${pct(pb)}) a aktuálního skóre${d.server?' včetně podávajícího':', podávající neznámý (průměr)'}. ${t.next?`${done.length+2}. set se odehraje s pravděpodobností ${pct(t.next.played)}. `:''}Tiebreak se počítá jako 1 gem. Přepočítává se s každou změnou skóre.</p></div>`}
 function tPred(d){if(!d.cards||!d.cards[0]||!d.cards[1])return '<div class="box note">Predikce nedostupná.</div>';const [a,b]=d.cards;
  return `<div class="box note"><b>Predikce ${pct(d.live?d.live.match:d.pred)} : ${pct(1-(d.live?d.live.match:d.pred))}</b>. Před zápasem ${pct(d.pred)} : ${pct(1-d.pred)}. Rozpis faktorů je předzápasový.</div>
- <div class="box"><div class="note">${esc(d.circuit)} · ${surfCz[d.surface]} · na ${d.best_of} sety</div><h3 style="margin-top:10px">HLAVNÍ FAKTORY</h3>${(d.factors||[]).map(f=>`<div class="fac"><span>${f.label}</span><span class="${f.favors}">${'▮'.repeat(Math.min(4,1+Math.round(Math.abs(f.value)*6)))} ${esc(f.favors==='A'?a.name:b.name)}</span></div>`).join('')}
+ <div class="box"><div class="note">${esc(d.circuit)} · ${surfCz[d.surface]} · na ${d.best_of} sety</div></div>${explainBox(d.factors,d.pred,[nA(d),nB(d)],d.surface,d.factors_src)}<div class="box"><h3>HLAVNÍ FAKTORY</h3>${(d.factors||[]).map(f=>`<div class="fac"><span>${f.label}</span><span class="${f.favors}">${'▮'.repeat(Math.min(4,1+Math.round(Math.abs(f.value)*6)))} ${esc(f.favors==='A'?a.name:b.name)}</span></div>`).join('')}
  <p class="note">Faktory = příspěvky v logistické regresi (vysvětlitelná část modelu); výsledná pravděpodobnost je z LightGBM.</p></div>
  <div class="box"><h3>SROVNÁNÍ</h3><table><tr><th></th><th>${esc(nA(d)).toUpperCase()}</th><th>${esc(nB(d)).toUpperCase()}</th></tr>
  <tr><td>Elo celkové</td><td>${a.elo}</td><td>${b.elo}</td></tr><tr><td>Elo – ${surfCz[d.surface]}</td><td>${a.selo}</td><td>${b.selo}</td></tr><tr><td>Žebříček</td><td>${a.rank??'–'}</td><td>${b.rank??'–'}</td></tr>

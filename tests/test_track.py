@@ -64,3 +64,14 @@ def test_api_track(tmp_path, monkeypatch):
         r = c.get("/api/track").json(); assert r["summary"]["pending"] == 1 and r["recent"][0]["id"] == "t1"
         app.SVC.days[0] = [M("t1", "finished", winner=1)]
         r = c.get("/api/track").json(); assert r["summary"]["n"] == 1 and r["summary"]["accuracy"] == 1.0
+
+def test_api_factors_have_raw_values():
+    if not (ROOT / "data/model/gbm.txt").exists(): return
+    from fastapi.testclient import TestClient
+    import app
+    with TestClient(app.app) as c:
+        a = c.get("/api/players", params=dict(q="sinner")).json()[0]["id"]; b = c.get("/api/players", params=dict(q="alcaraz")).json()[0]["id"]
+        f = c.get("/api/predict", params=dict(a=a, b=b, surface="Clay")).json()["factors"]
+        assert f and all("key" in x and "raw" in x and x["favors"] in "AB" for x in f)
+        se = [x for x in f if x["key"] == "selo_d"]
+        assert not se or (se[0]["raw"] > 0) == (se[0]["value"] > 0)  # vyšší Elo na povrchu pomáhá hráči A
