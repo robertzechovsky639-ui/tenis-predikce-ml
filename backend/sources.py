@@ -78,6 +78,23 @@ def _assign_initials(initials, pool):
 
     return rec(0)
 
+def _given_initial_need(full_name, spelled, trail_given):
+    """'Zaharije-Zak' je jedno křestní jméno: stačí iniciála Z, ne Z a Z."""
+    groups = []
+    for w in str(full_name or "").split():
+        if re.match(r"^[A-Za-z]\.$", w):
+            continue
+        parts = [t for t in name_tokens(w) if len(t) >= 2 and t not in _PARTICLE]
+        if parts:
+            groups.append(parts)
+    need = []
+    trail_given = trail_given or []
+    for g in groups[:-1]:
+        uncovered = [tok for tok in g if tok not in spelled and not any(tok.startswith(t) and len(t) >= 3 for t in trail_given)]
+        if uncovered:
+            need.append(uncovered[0][0])
+    return need
+
 def _prefix_given(abbr, fulls):
     used = [False] * len(fulls)
 
@@ -117,11 +134,17 @@ def same_player(a, b):
         full_sig = set(full["sig"])
         last = trail["surnames"][-1] if trail["surnames"] else ""
         primary = bool(last) and last == (full["surnames"][0] if full["surnames"] else "") and all(t in full_sig for t in trail["surnames"])
+        compound = bool(trail["surnames"]) and trail["surnames"][0] == (full["surnames"][0] if full["surnames"] else "")
         asian = (not full["has_particle"] and len(trail["surnames"]) == 1 and not trail["given"]
                  and len(full["given"]) == 1 and len(full["surnames"]) == 1
                  and trail["surnames"][0] == full["given"][0]
                  and trail["initials"] and trail["initials"][0] == full["surnames"][0][0])
-        if primary:
+        if primary or compound:
+            spelled = set(trail["surnames"] + trail["given"])
+            full_name = b if trail is A else a
+            need = _given_initial_need(full_name, spelled, trail["given"])
+            if not _assign_initials(need, trail["initials"]):
+                return False
             if not _assign_initials(trail["initials"], full["given"] + full["initials"]):
                 return False
             if trail["given"] and not _prefix_given(trail["given"], full["given"]):

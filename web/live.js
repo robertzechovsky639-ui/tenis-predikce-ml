@@ -95,6 +95,22 @@
     }
     return rec(0);
   }
+  function givenInitialNeed(fullName, spelled, trailGiven) {
+    // 'Zaharije-Zak' je jedno křestní jméno. Jedna iniciála Z stačí, ne dvě.
+    const words = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+    const groups = [];
+    for (const w of words) {
+      if (/^[A-Za-z]\.$/.test(w)) continue;
+      const parts = toks(w).filter(t => t.length >= 2 && !NAME_PARTICLE.has(t));
+      if (parts.length) groups.push(parts);
+    }
+    const need = [];
+    for (const g of groups.slice(0, -1)) {
+      const uncovered = g.filter(tok => !spelled.has(tok) && !(trailGiven || []).some(t => tok.startsWith(t) && t.length >= 3));
+      if (uncovered.length) need.push(uncovered[0][0]);
+    }
+    return need;
+  }
   function prefixGiven(abbr, fulls) {
     const used = new Array(fulls.length).fill(false);
     function rec(i) {
@@ -127,11 +143,17 @@
       const fullSig = new Set(full.sig);
       const last = trail.surnames[trail.surnames.length - 1];
       const primary = !!last && last === full.surnames[0] && trail.surnames.every(t => fullSig.has(t));
+      // 'Meligeni Alves F.' je totéž co 'Felipe Meligeni': první příjmení sedí, zbytek složeného jména může chybět.
+      const compound = !!trail.surnames[0] && trail.surnames[0] === full.surnames[0];
       const asian = !full.hasParticle && trail.surnames.length === 1 && trail.given.length === 0
         && full.given.length === 1 && full.surnames.length === 1
         && trail.surnames[0] === full.given[0]
         && trail.initials.length >= 1 && trail.initials[0] === full.surnames[0][0];
-      if (primary) {
+      if (primary || compound) {
+        const spelled = new Set(trail.surnames.concat(trail.given));
+        const fullName = trail === A ? b : a;
+        const need = givenInitialNeed(fullName, spelled, trail.given);
+        if (!assignInitials(need, trail.initials)) return false;
         if (!assignInitials(trail.initials, full.given.concat(full.initials))) return false;
         if (trail.given.length && !prefixGiven(trail.given, full.given)) return false;
         return assignInitials(full.initials, trail.initials.concat(trail.given, trail.surnames));
@@ -336,6 +358,8 @@
     // Mezi sety feed často nepošle 0:0. Seznam má ukázat stejný rozběhnutý set jako detail.
     // Už rozhodnutý zápas (2:0 / 2:1) další 0:0 nedostane.
     const s = normSets(sets).map(x => [x[0], x[1]]);
+    // První gem 0:0 se ve skóre neukládá, ale seznam ho má ukázat i s body.
+    if (status === 'live' && !s.length) return [[0, 0]];
     if (status === 'live' && s.length && finishedSet(s[s.length - 1]) && !matchWinner(s, bestOf)) s.push([0, 0]);
     return s;
   }
@@ -615,7 +639,11 @@
     if (closed.closed) upd = Object.assign({}, upd, { sets: closed.sets, pts: closed.pts, pts_raw: [0, 0] });
     const prevSets = m.sets, prevPts = m.pts, prevServer = m.server;
     const stale = !!(fresh && token && !fresh(token));
-    if (m.status === 'finished' && upd.status !== 'finished') return false;
+    if (m.status === 'finished' && upd.status !== 'finished') {
+      // Export občas zavře zápas, který ještě nemá vítěze ani dva sety (3:0). Živý zdroj ho smí otevřít.
+      // Skreč a opravdu dohraný zápas zůstávají zavřené.
+      if (m.winner || matchWinner(m.sets, m.best_of) || cmpScore(m.sets, m.pts, upd.sets, upd.pts) <= 0) return false;
+    }
     if (m.status === 'live' && upd.status === 'upcoming') return false;
     if (upd.status === 'finished' && m.status !== 'finished') {
       const setRel = cmpScore(dropOpen(m.sets), null, dropOpen(upd.sets), null);
@@ -633,6 +661,12 @@
     const deuce = rel < 0 && !stale && isDeuceReset(m.pts, upd.pts) && sameSrc && token && token.t0 > (m._accAt || 0);
     if (rel < 0 && !deuce) return false;
     if (stale && rel <= 0) return false;
+    // Flashscore a ESPN často pošlou jen gemy. To nesmí smazat body a podávajícího ze Sofascore/365,
+    // jinak se další bod už nepřijme a živá predikce zůstane bez gemu.
+    if (upd.pts == null && m.pts != null && upd.status !== 'finished') {
+      const setRel = cmpScore(m.sets, null, upd.sets, null);
+      if (setRel > 0 && !onlyOpenedSet(m.sets, upd.sets)) return false;
+    }
     const setsChanged = JSON.stringify(normSets(m.sets)) !== JSON.stringify(normSets(upd.sets));
     if (!setsChanged && isAdvAfterDeuce(m.pts, upd.pts)) {
       const other = m.src_pts && upd.src_pts && m.src_pts !== upd.src_pts;

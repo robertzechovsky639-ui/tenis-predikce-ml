@@ -101,7 +101,7 @@ function liveCalc(m) { if (m.status !== 'live' || m.pred == null) { m.live = nul
     if (done.length >= bo - 1) tbTo = 10;
   }
   const l = MK.live(m.pred, done, cur, pts, m.server, m.g === 'W', m.best_of, tbTo, matchTb);
-  l.note = m.server ? 'stav bod po bodu (365scores, v prohlížeči): sety, gemy, body a podávající' : 'body/podání nejsou k dispozici – stav = sety a gemy, podávající neznámý (průměr)';
+  l.note = m.server ? 'stav bod po bodu (365scores, v prohlížeči): sety, gemy, body a podávající' : (m.pts ? 'body ze zdroje, podávající neznámý (průměr)' : 'body/podání nejsou k dispozici – stav = sety a gemy, podávající neznámý (průměr)');
   m.live = l; m.value = null; if (m.odds && m.odds_t > Date.now() - 90000) { const p = l.match; m.value = p * m.odds.best_a - 1 > .05 ? 'A' : (1 - p) * m.odds.best_b - 1 > .05 ? 'B' : null } }
 async function jDirect(u, h, signal) { const r = await fetch(u, { headers: h || {}, cache: 'no-store', signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json() }
 const _jobs = new Map(); let _wj = null, _jid = 0;
