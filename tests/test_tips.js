@@ -32,3 +32,34 @@ assert.strictEqual(rs.length, 2); assert.strictEqual(rs[0].who, 'Sinner'); asser
 assert.strictEqual(rs[1].who, 'Alcaraz'); assert(/vede vzájemné zápasy o 3/.test(rs[1].text), rs[1].text); assert(rs[0].pp > rs[1].pp && rs[0].pp > 5 && rs[0].pp < 15);
 assert(/Tip: Sinner \(70 %\)/.test(E.summary(rs, .7, ['Sinner', 'Alcaraz'])));
 console.log('tips ok');
+// 7) přehledné zobrazení: jasné popisky gamů, jedna linie na set/zápas, žádné téměř jisté trhy
+{ const t = T.compute({ pa: .64, pb: .64, done: [[6, 4], [4, 6]], cur: [4, 4], server: 1, bo: 3 }), v = T.view(t, { done: [[6, 4], [4, 6]] });
+  const ou = v.filter(x => /^Počet/.test(x.label)); assert.deepStrictEqual(ou.map(x => x.label), ['Počet gamů ve 3. setu', 'Počet gamů v celém zápase']);
+  for (const x of v) { const p = x.a ?? x.p ?? x.over; assert(p >= .05 && p <= .95, JSON.stringify(x)) }
+  assert(v.some(x => x.label === 'Tiebreak ve 3. setu') || t.cur.tb < .05 || t.cur.tb > .95);
+  assert.strictEqual(T.vSet(1), 'v 1. setu'); assert.strictEqual(T.vSet(5), 'v 5. setu');
+  const line = T.balanced([{ line: 9.5, over: .92 }, { line: 10.5, over: .18 }, { line: 11.5, over: .4 }]); assert.strictEqual(line.line, 11.5);
+  assert.strictEqual(T.balanced([{ line: 9.5, over: .99 }]), null); }
+console.log('view ok');
+// 8) gamy jednotlivých hráčů: přesné rozdělení, A + B = celkem, popisky
+{ const st = { pa: .64, pb: .6, done: [[6, 4]], cur: [2, 3], pts: [0, 0], server: 1, bo: 3 }, t = T.compute(st);
+  close(t.playerA.exp + t.playerB.exp, t.match.exp, 1e-9, 'součet gamů');
+  assert(t.playerA.exp >= 8 && t.playerB.exp >= 7);
+  // ruční kontrola jednoduchého případu: rozhodující set při 5:0, A podává, 30:0 – A má aspoň 6+?
+  const v = T.view(t, { done: st.done, names: ['Villanueva', 'Tobon'] });
+  const pl = v.filter(x => /^Gamy hráče/.test(x.label)); assert.deepStrictEqual(pl.map(x => x.label), ['Gamy hráče Villanueva v celém zápase', 'Gamy hráče Tobon v celém zápase']);
+  for (const x of pl) assert(x.over > .05 && x.over < .95 && x.line % 1 === .5);
+  // Monte Carlo kontrola přesnosti rozdělení gamů hráče A
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647, N = 200000, L = pl[0].line;
+  const ha = T.game(st.pa), hb = T.game(st.pb); let cnt = 0;
+  for (let i = 0; i < N; i++) { let A = 6, sa = 1, sb = 0, x = 2, y = 3, aS = true;
+    while (sa < 2 && sb < 2) {
+      while (true) { if ((x >= 6 && x - y >= 2) || (y >= 6 && y - x >= 2) || x === 7 || y === 7) break;
+        if (x === 6 && y === 6) { if (rnd() < T.tiebreak(st.pa, st.pb, 0, 0, aS, sa + sb >= 2 ? 10 : 7)) x++; else y++; aS = !aS; break }
+        if (aS ? rnd() < ha : rnd() >= hb) x++; else y++; aS = !aS }
+      A += x; if (x > y) sa++; else sb++; x = y = 0 }
+    if (A > L) cnt++ }
+  close(cnt / N, pl[0].over, .006, 'Monte Carlo gamy hráče A');
+  // jednodušší kontrola: P(více než linie) je mezi 0 a 1 a monotónní v linii
+  const ls = t.playerA.lines.map(x => x.over); for (let i = 1; i < ls.length; i++) assert(ls[i] <= ls[i - 1] + 1e-12); }
+console.log('player games ok');
