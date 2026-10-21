@@ -11,12 +11,15 @@ permissions:
   pages: write
   id-token: write
 concurrency:
-  # Bez cancel-in-progress: dva exporty za sebou se nesmí přerušit, jinak se ztratí dohraný zápas.
-  group: pages
+  # Push a plánovaný refresh jsou dvě fronty. GitHub jinak zruší čekající push,
+  # jakmile se do stejné skupiny zařadí cron, i když je cancel-in-progress false.
+  group: pages-${{ github.event_name == 'push' && 'push' || 'refresh' }}
   cancel-in-progress: false
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.gate.outputs.deploy }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -34,11 +37,35 @@ jobs:
         env: { GH_TOKEN: "${{ github.token }}" }
         run: python scripts/fetch_release.py
       - run: python scripts/export_static.py
+      - id: gate
+        name: Push vždy nasadí, starší refresh ne
+        env:
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          fetch_ok=true
+          origin=""
+          if [ "$EVENT" != "push" ]; then
+            if git fetch origin main; then
+              origin=$(git rev-parse origin/main)
+              echo "origin/main $origin checkout $SHA"
+            else
+              fetch_ok=false
+              echo "fetch origin/main selhal, refresh se nasadí"
+            fi
+          fi
+          if python scripts/deploy_gate.py "$EVENT" "$SHA" "$origin" "$fetch_ok"; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "starší checkout, bez webu, bez state a bez deploy"
+          fi
       - uses: actions/upload-pages-artifact@v3
+        if: steps.gate.outputs.deploy == 'true'
         with: { path: dist }
       - name: Uložit zálohu modelu a state.json
         id: save_cache
-        if: success()
+        if: success() && steps.gate.outputs.deploy == 'true'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
@@ -65,6 +92,7 @@ jobs:
             done
   deploy:
     needs: build
+    if: needs.build.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     environment: { name: github-pages, url: "${{ steps.d.outputs.page_url }}" }
     steps:
@@ -74,11 +102,12 @@ jobs:
   # spustí export sám. Výsledek: ≥ 1 aktualizace za ~10 min, bez duplicit (pod limitem Pages ~10 nasazení/h).
   keepalive:
     needs: deploy
+    if: needs.deploy.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
       - env: { GH_TOKEN: "${{ github.token }}", R: "${{ github.repository }}", ME: "${{ github.run_id }}" }
         run: |
           sleep 480
-          newer=$(gh run list -R "$R" -w pages.yml -L 5 --json databaseId,createdAt --jq "[.[]|select(.databaseId > $ME)]|length")
-          if [ "$newer" -gt 0 ]; then echo "mezitím začal jiný běh – bez zálohy"; else gh workflow run pages.yml -R "$R"; echo "spuštěn další export"; fi
+          busy=$(gh run list -R "$R" -w pages.yml -L 20 --json databaseId,status --jq "[.[]|select(.databaseId != ($ME|tonumber) and (.status==\"queued\" or .status==\"in_progress\" or .status==\"waiting\" or .status==\"pending\" or .status==\"requested\"))]|length")
+          if [ "$busy" != "0" ]; then echo "jiný běh pages.yml ještě čeká nebo běží – bez zálohy"; else gh workflow run pages.yml -R "$R"; echo "spuštěn další export"; fi
