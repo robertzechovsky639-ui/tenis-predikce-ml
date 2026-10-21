@@ -9,3 +9,4 @@ public_url.txt
 dist/
 data/online-cache/
 data/online/
+data/track.json

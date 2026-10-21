@@ -1,6 +1,6 @@
 'use strict';
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const S={view:'zapasy',day:0,circ:'all',filt:'all',favOnly:false,data:{},fav:new Set(JSON.parse(localStorage.fav||'[]')),detail:null,tab:'prehled',status:{},lat:[]};
+const S={view:'zapasy',day:0,circ:'all',filt:'all',favOnly:false,data:{},fav:new Set(JSON.parse(localStorage.fav||'[]')),favP:new Set(JSON.parse(localStorage.favP||'[]')),detail:null,tab:'prehled',status:{},lat:[]};
 const DN=['Neděle','Pondělí','Úterý','Středa','Čtvrtek','Pátek','Sobota'];
 const pct=x=>x==null?'–':Math.round(x*100)+' %', f2=x=>x==null?'–':(+x).toFixed(2);
 const initials=n=>(n||'?').replace(/[^\p{L} ]/gu,'').split(' ').filter(Boolean).map(w=>w[0]).slice(0,2).join('').toUpperCase();
@@ -8,7 +8,8 @@ const shortN=p=>{const n=p.name||'';if(/\s\w\.$/.test(n))return n; const t=n.spl
 const surfCz={Hard:'Tvrdý',Clay:'Antuka',Grass:'Tráva',Carpet:'Koberec'};
 const tagOf=c=>c==='ATP'?['ATP','atp']:c==='WTA'?['WTA','wta']:c==='Challenger'?['CH','']:c==='WTA 125'?['125','wta']:c.startsWith('ITF')?['ITF','itf']:[c,''];
 async function api(u){if(STATIC)return staticApi(u);const r=await fetch(u);if(!r.ok)throw new Error(r.status);return r.json()}
-function saveFav(){localStorage.fav=JSON.stringify([...S.fav])}
+function saveFav(){localStorage.fav=JSON.stringify([...S.fav]);localStorage.favP=JSON.stringify([...S.favP])}
+const isFav=m=>S.fav.has(m.id)||(m.pids||[]).some(p=>p&&S.favP.has(p));
 
 let _st0=null;async function load(day){if(STATIC){if(!_st0&&cacheLoad()){for(let d=-2;d<=2;d++)S.data[d]=ST.all.filter(m=>m.day===d);render();upd()}_st0=_st0||loadStatic();await _st0}const d=await api('/api/matches?day='+day);S.data[day]=d.matches;S.status=d.status;render();upd()}
 function upd(){const s=S.status||{};let html;if(STATIC){const lv=ST.all.filter(m=>m.status==='live').length;s.live=lv;const H={sofascore:'Sofascore',s365:'365scores',espn:'ESPN',sofaDetail:'detail'};const hd=health().map(h=>`<span class="hd ${h.state}" title="${H[h.k]}">${H[h.k]}</span>`).join('');
@@ -30,12 +31,12 @@ function filt(list){return list.filter(m=>{
  if(S.circ!=='all'){if(S.circ==='CH'){if(!['Challenger','WTA 125'].includes(m.circuit))return false}else if(m.circuit!==S.circ)return false}
  if(S.filt==='live'&&m.status!=='live')return false;if(S.filt==='up'&&m.status!=='upcoming')return false;if(S.filt==='fin'&&m.status!=='finished')return false;
  if(S.filt==='value'&&!m.value)return false;if(S.filt==='qual'&&!m.qual)return false;if(S.filt==='main'&&m.qual)return false;
- if(S.favOnly&&!S.fav.has(m.id))return false;return true})}
+ if(S.favOnly&&!isFav(m))return false;return true})}
 
 function scoreSig(m){const p=m.live?m.live.match:m.pred;return [m.status,JSON.stringify(m.sets),JSON.stringify(m.pts_raw||m.pts),m.server||0,m.winner||0,p==null?'':Math.round(p*100),m.pred_low?1:0,m.odds?(m.odds.best_a+','+m.odds.best_b):'',m.value||''].join('|')}
 function shownSets(m){return TenisLive.displaySets(m.sets,m.status,m.best_of)}
 function structSig(m){return [m.status,shownSets(m).length,m.pts_raw?1:0,m.pred!=null?1:0,m.odds?1:0,m.winner||0,m.server||0].join('|')}
-function visKey(){if(S.view==='oblibene')return 'f:'+Object.values(S.data).flat().filter(m=>S.fav.has(m.id)).map(m=>m.id).join(',');if(S.view!=='zapasy')return 'v:'+S.view;return [S.day,S.circ,S.filt,S.favOnly?1:0,(filt(S.data[S.day]||[])).map(m=>m.id).join(',')].join('|')}
+function visKey(){if(S.view==='oblibene')return 'f:'+Object.values(S.data).flat().filter(isFav).map(m=>m.id).join(',');if(S.view!=='zapasy')return 'v:'+S.view;return [S.day,S.circ,S.filt,S.favOnly?1:0,(filt(S.data[S.day]||[])).map(m=>m.id).join(',')].join('|')}
 function curSetIdx(m){const s=shownSets(m);return m.status==='live'&&s.length&&!TenisLive.finishedSet(s[s.length-1])?s.length-1:-1}
 function patchCard(el,m){const rows=el.querySelectorAll('.row');if(rows.length<2)return false;const curK=curSetIdx(m);const sets=shownSets(m);
  for(let i=0;i<2;i++){const box=rows[i].querySelector('.sc');if(!box){if(sets.length)return false;continue}
@@ -75,9 +76,9 @@ function matchesView(fav){let h='';
   h+=`</div><div class="filters"><div class="sel"><label>OKRUHY</label><select id="circ">${[['all','Všechny okruhy'],['ATP','ATP'],['WTA','WTA'],['CH','Challenger / WTA 125'],['ITF muži','ITF muži'],['ITF ženy','ITF ženy']].map(([v,t])=>`<option value="${v}" ${S.circ===v?'selected':''}>${t}</option>`).join('')}</select></div>
   <div class="sel"><label>FILTR</label><select id="filt">${[['all','Vše'],['live','Živě'],['up','Nadcházející'],['fin','Dokončené'],['value','Value'],['qual','Kvalifikace'],['main','Hlavní soutěž']].map(([v,t])=>`<option value="${v}" ${S.filt===v?'selected':''}>${t}</option>`).join('')}</select></div>
   <button class="star ${S.favOnly?'on':''}" id="favt">${S.favOnly?'★':'☆'}</button></div>`}
- else h+=`<h1>OBLÍBENÉ</h1><div class="notif"><button class="ob" id="nbtn">🔔 Upozornění na oblíbené</button> <span class="na">začátek, set, konec</span></div>`;
- const all=fav?Object.values(S.data).flat().filter(m=>S.fav.has(m.id)):filt(S.data[S.day]||[]);
- if(!all.length)return h+`<div class="empty">${S.data[S.day]?'Žádné zápasy pro zvolený filtr.':'Načítám…'}${fav?'<br>Hvězdičkou v detailu zápasu přidáš oblíbené.':''}</div>`;
+ else h+=`<h1>OBLÍBENÉ</h1><div class="notif"><button class="ob" id="nbtn">🔔 Upozornění na oblíbené</button> <span class="na">začátek, set, konec, velký zvrat šancí (≥ 15 b.)</span></div>`;
+ const all=fav?Object.values(S.data).flat().filter(isFav):filt(S.data[S.day]||[]);
+ if(!all.length)return h+`<div class="empty">${S.data[S.day]?'Žádné zápasy pro zvolený filtr.':'Načítám…'}${fav?'<br>Hvězdičkou v detailu zápasu přidáš oblíbený zápas, v záložce Hráči oblíbeného hráče (jeho zápasy se tu pak ukážou samy).':''}</div>`;
  const g={};for(const m of all){const k=m.circuit+'|'+m.tournament+'|'+m.qual;(g[k]=g[k]||[]).push(m)}
  for(const k in g){const m=g[k][0],[tg,cl]=tagOf(m.circuit);
   h+=`<div class="grp"><div class="ghead"><div>${esc(m.tournament)}<small>${esc(m.circuit)} · ${surfCz[m.surface]||m.surface}${m.qual?' · Kvalifikace':''} · zdroj ${m.src}</small></div><div>${m.demo?'<span class="tag demo">DEMO</span>':''}<span class="tag ${cl}">${tg}</span>${m.qual?'<span class="tag q">Q</span>':''}</div></div>${g[k].map(card).join('')}</div>`}
@@ -91,16 +92,27 @@ async function modelView(){const m=await api('/api/model');const r=(k,n)=>`<tr><
  <p class="note">Testovaných zápasů: ${m.test_rows.toLocaleString('cs-CZ')} · trénink: ${m.train_rows.toLocaleString('cs-CZ')} · data ${m.data_from} až ${m.data_to} (${m.n_matches.toLocaleString('cs-CZ')} zápasů, Jeff Sackmann) · iterací ${m.gbm_iterations} · natrénováno ${m.trained_at}</p></div>
  <div class="box"><h3>PRŮBĚŽNÉ UČENÍ</h3><p class="note">${m.incremental?`Při posledním exportu započteno ${m.incremental.applied} dohraných zápasů do Elo, formy a H2H.`:''} Stromy LightGBM se mezi dny nemění. Denně se celý model přetrénuje a publikuje jen, když na holdoutu (posledních 8 týdnů) porazí Elo a není výrazně horší než minule publikovaný.</p>
  ${(m.history||[]).length?`<table><tr><th>DATUM</th><th>HOLDOUT</th><th>NOVÝ</th><th>STARÝ</th><th></th></tr>${m.history.slice(-10).reverse().map(h=>`<tr><td>${h.at.slice(0,10)}</td><td>${h.holdout_n}</td><td>${h.candidate.log_loss.toFixed(4)}</td><td>${h.current.log_loss.toFixed(4)}</td><td>${h.published?'✅':'↩︎'}</td></tr>`).join('')}</table><p class="note">Log loss na holdoutu; ✅ = publikováno, ↩︎ = ponechán starý model.</p>`:'<p class="note">Zatím žádné přetrénování.</p>'}</div>
+ ${m.calibration?`<div class="box"><h3>KALIBRACE NA TESTU (Brier ${m.test.lightgbm.brier.toFixed(4)})</h3><table><tr><th>PŘEDPOVĚĎ</th><th>N</th><th>PRŮMĚR</th><th>SKUTEČNOST</th></tr>${m.calibration.map(b=>`<tr><td>${Math.round(b.lo*100)}–${Math.round(b.hi*100)} %</td><td>${b.n}</td><td>${(b.pred*100).toFixed(1)} %</td><td>${(b.real*100).toFixed(1)} %</td></tr>`).join('')}</table></div>`:''}
  <div class="box"><h3>PODLE OKRUHU (LightGBM vs Elo)</h3><table><tr><th></th><th>N</th><th>LGBM</th><th>ELO</th></tr>${Object.entries(m.by_circuit).map(([c,v])=>`<tr><td>${c}</td><td>${v.lightgbm.n}</td><td>${(v.lightgbm.accuracy*100).toFixed(1)} %</td><td>${(v.elo.accuracy*100).toFixed(1)} %</td></tr>`).join('')}</table></div>
  <div class="box"><h3>DŮLEŽITOST PŘÍZNAKŮ (gain)</h3>${Object.entries(m.importance).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="bar" style="margin:5px 0"><span style="width:90px">${k}</span><div class="t" style="background:#2a2060"><i style="width:${v*100}%"></i></div><span>${(v*100).toFixed(1)} %</span></div>`).join('')}</div>
  ${STATIC?`<div class="box"><h3>ŽIVÁ DATA (GitHub Pages)</h3><p class="note">Skóre přímo z prohlížeče: na počítači Sofascore 1,5 s, 365scores 2,5 s a ESPN 4 s (začátky rozložené, ať se tři odpovědi nesejdou najednou); na telefonu 2,2 / 5 / 8 s. Detail bod po bodu jen u zápasů na obrazovce. JSON se čte mimo hlavní vlákno. Při chybě se interval zdvojnásobuje až na 30 s, na pozadí nejméně 15 s. Odezva zdrojů (medián): ${Object.entries(SOURCES).map(([k,s])=>k+' '+(s.lat&&s.lat.length?Math.round([...s.lat].sort((a,b)=>a-b)[s.lat.length>>1]):'–')+' ms').join(', ')}. Předzápasové predikce: GitHub Actions, vygenerováno ${new Date(ST.generated*1000).toLocaleString('cs-CZ')}.</p></div>`:''}<div class="box" style="${STATIC?'display:none':''}"><h3>ŽIVÁ DATA</h3><p class="note">Poslední dotaz: ${S.status.last_poll||'–'} · stažení zdrojů ${S.status.source_ms} ms · celý cyklus ${S.status.poll_ms} ms · interval ${S.status.live?'3 s (živé zápasy)':'30 s'} · zpoždění SSE push→prohlížeč ${S.lat.length?Math.round(S.lat.at(-1))+' ms':'–'}</p></div>`}
+async function trackView(){let t;try{t=await api('/api/track')}catch(e){return `<h1>HISTORIE</h1><div class="box note">Historie predikcí zatím není k dispozici.</div>`}
+ const s=t.summary||{},v=s.value||{},cal=s.calibration||[];
+ const ok=r=>r.winner?((r.p>.5)===(r.winner===1)):null;
+ let h=`<h1>HISTORIE PREDIKCÍ</h1><div class="box"><h3>ÚSPĚŠNOST</h3>${s.n?`<table><tr><th>ZÁPASŮ</th><th>PŘESNOST</th><th>BRIER</th><th>LOG LOSS</th></tr><tr><td>${s.n}</td><td>${(s.accuracy*100).toFixed(1)} %</td><td>${s.brier.toFixed(3)}</td><td>${s.log_loss.toFixed(3)}</td></tr></table>`:'<div class="note">Zatím žádný vyhodnocený zápas.</div>'}
+ <p class="note">Počítají se jen predikce uložené před začátkem zápasu (čeká na výsledek: ${s.pending||0}). Brier: 0 = dokonalé, 0,25 = hod mincí.</p></div>`;
+ if(cal.length)h+=`<div class="box"><h3>KALIBRACE</h3>${cal.map(b=>`<div class="bar" style="margin:5px 0"><span style="width:70px">${Math.round(b.lo*100)}–${Math.round(b.hi*100)} %</span><div class="t" style="background:#2a2060;position:relative"><i style="width:${b.real*100}%"></i><b style="position:absolute;left:${b.pred*100}%;top:-2px;bottom:-2px;width:2px;background:#fff"></b></div><span>${Math.round(b.real*100)} % · ${b.n}</span></div>`).join('')}<p class="note">Pruh = skutečný podíl výher, bílá čárka = průměrná předpověď. Dobře kalibrovaný model má čárku na konci pruhu.</p></div>`;
+ h+=`<div class="box"><h3>VALUE TIPY (kurz před zápasem)</h3>${v.n?`<table><tr><th>TIPŮ</th><th>VÝHER</th><th>ZISK (1 j./tip)</th><th>ROI</th></tr><tr><td>${v.n}</td><td>${v.won}</td><td style="color:${v.profit>=0?'var(--grn)':'inherit'}">${v.profit.toFixed(2)}</td><td>${(v.roi*100).toFixed(1)} %</td></tr></table>`:'<div class="note">Zatím žádný vyhodnocený value tip.</div>'}<p class="note">Value = pravděpodobnost modelu × kurz − 1 ≥ 5 %, tj. model věří hráči víc, než naznačuje kurz.</p></div>`;
+ const bc=Object.entries(s.by_circuit||{});if(bc.length)h+=`<div class="box"><h3>PODLE OKRUHU</h3><table><tr><th></th><th>N</th><th>PŘESNOST</th></tr>${bc.sort((a,b)=>b[1].n-a[1].n).map(([c,x])=>`<tr><td>${esc(c)}</td><td>${x.n}</td><td>${(x.accuracy*100).toFixed(1)} %</td></tr>`).join('')}</table></div>`;
+ h+=`<div class="box"><h3>POSLEDNÍ PREDIKCE</h3>${(t.recent||[]).slice(0,100).map(r=>{const k=ok(r);return `<div class="fac"><span>${esc(r.date)} · ${esc(r.a)} – ${esc(r.b)} <small class="na">${esc(r.circuit||'')}</small></span><span>${pct(r.p)} : ${pct(1-r.p)} ${k==null?'<span class="na">čeká</span>':k?'✅':'❌'}</span></div>`}).join('')||'<div class="note">Prázdné.</div>'}</div>`;
+ return h}
 function chatView(){return `<h1>CHAT</h1><div id="msgs"><div class="msg">Ahoj! Napiš dvojici hráčů, např. „Sinner vs Alcaraz antuka“. Odpovídám z modelu (lokální asistent, bez AI).</div></div>
  <div style="padding:12px;display:flex;gap:8px"><input class="q" id="cq" placeholder="Zpráva…"><button class="ob" id="cs">➤</button></div>`}
-function playersView(){return `<h1>HRÁČI</h1><div style="padding:0 12px"><input class="q" id="ps" placeholder="Hledat hráče…"></div><div id="plist"></div>`}
+function playersView(){return `<h1>HRÁČI</h1><p class="note" style="padding:0 12px">☆ = oblíbený hráč (uloženo v tomto zařízení). Oblíbených: ${S.favP.size}</p><div style="padding:0 12px"><input class="q" id="ps" placeholder="Hledat hráče…"></div><div id="plist"></div>`}
 
 async function render(){const v=$('#view');let h='';
  if(S.view==='zapasy')h=matchesView(false);else if(S.view==='oblibene')h=matchesView(true);else if(S.view==='predikce')h=await predView();
- else if(S.view==='model')h=await modelView();else if(S.view==='chat'){if(v.dataset.v==='chat')return;h=chatView()}else if(S.view==='hraci'){if(v.dataset.v==='hraci')return;h=playersView()}
+ else if(S.view==='model')h=await modelView();else if(S.view==='historie')h=await trackView();else if(S.view==='chat'){if(v.dataset.v==='chat')return;h=chatView()}else if(S.view==='hraci'){if(v.dataset.v==='hraci')return;h=playersView()}
  v.dataset.v=S.view;v.innerHTML=h;bind();if(S.view==='zapasy'||S.view==='oblibene')S.vis=visKey()}
 
 function pickBox(inp,list,cb){let t;inp.oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{const r=inp.value.length>1?await api('/api/players?q='+encodeURIComponent(inp.value)):[];
@@ -115,7 +127,8 @@ function bind(){document.querySelectorAll('.days button').forEach(b=>b.onclick=(
    const r=await api(`/api/predict?a=${a}&b=${b}&surface=${surf}`);$('#pres').innerHTML=`<div class="big2" style="margin-top:12px">${pct(r.p)} : ${pct(1-r.p)}</div><div class="note">Elo ${pct(r.elo_p)} · ${r.h2h[0]==='?'?'H2H v této verzi nepočítáme':'H2H '+r.h2h.join(':')} · fér kurzy ${f2(1/r.p)} / ${f2(1/(1-r.p))}</div>${r.factors.map(f=>`<div class="fac"><span>${f.label}</span><span class="${f.favors}">${f.favors==='A'?r.cards[0].name:r.cards[1].name}</span></div>`).join('')}`};
   pickBox($('#pa'),$('#pal'),go);pickBox($('#pb'),$('#pbl'),go);document.querySelectorAll('#psurf button').forEach(b=>b.onclick=()=>{surf=b.dataset.s;document.querySelectorAll('#psurf button').forEach(x=>x.classList.toggle('on',x===b));go()})}
  if(S.view==='hraci'){const i=$('#ps');let t;i.oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{const r=i.value.length>1?await api('/api/players?q='+encodeURIComponent(i.value)):[];
-  $('#plist').innerHTML='<div class="box">'+(r.map(p=>`<div class="fac"><span>${esc(p.name)} <small class="na">${p.g==='M'?'ATP/ITF':'WTA/ITF'}</small></span><span class="na">Elo ${p.elo} · ${p.rank?'#'+p.rank:'bez žebř.'} · ${p.matches} záp.</span></div>`).join('')||'<div class="note">Nic nenalezeno</div>')+'</div>'},250)}}
+  $('#plist').innerHTML='<div class="box">'+(r.map(p=>`<div class="fac"><span><button class="pstar ${S.favP.has(p.id)?'on':''}" data-pid="${esc(p.id)}" title="Oblíbený hráč">${S.favP.has(p.id)?'★':'☆'}</button> ${esc(p.name)} <small class="na">${p.g==='M'?'ATP/ITF':'WTA/ITF'}</small></span><span class="na">Elo ${p.elo} · ${p.rank?'#'+p.rank:'bez žebř.'} · ${p.matches} záp.</span></div>`).join('')||'<div class="note">Nic nenalezeno</div>')+'</div>';
+  $('#plist').querySelectorAll('.pstar').forEach(b=>b.onclick=()=>{const id=b.dataset.pid;if(S.favP.has(id))S.favP.delete(id);else S.favP.add(id);saveFav();const on=S.favP.has(id);b.classList.toggle('on',on);b.textContent=on?'★':'☆';toast(on?'Hráč přidán do oblíbených':'Hráč odebrán z oblíbených')})},250)}}
  if(S.view==='chat'){const send=async()=>{const q=$('#cq').value.trim();if(!q)return;$('#cq').value='';$('#msgs').insertAdjacentHTML('beforeend',`<div class="msg me">${esc(q)}</div>`);
   const r=await api('/api/chat?q='+encodeURIComponent(q));$('#msgs').insertAdjacentHTML('beforeend',`<div class="msg">${esc(r.answer)}</div>`)};$('#cs').onclick=send;$('#cq').onkeydown=e=>e.key==='Enter'&&send()}}
 
@@ -200,10 +213,15 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
 // ---- upozornění pro oblíbené zápasy (v aplikaci; systémová notifikace jen když prohlížeč dovolí bez push serveru) ----
 const FP={};function toast(t){const e=document.createElement('div');e.className='toast';e.textContent=t;document.body.appendChild(e);setTimeout(()=>e.remove(),5000)}
 function notify(t){toast(t);if(window.Notification&&Notification.permission==='granted'&&navigator.serviceWorker)navigator.serviceWorker.ready.then(r=>r.showNotification('Tenis · oblíbené',{body:t,icon:'icon.svg',tag:'fav'})).catch(()=>{})}
-function favEvents(ids){for(const id of ids){if(!S.fav.has(id))continue;const m=(typeof ST!=='undefined'&&ST.byId[id])||null;if(!m)continue;const o=FP[id];const nm=`${sur(m.players[0])} – ${sur(m.players[1])}`;
+function favEvents(ids){for(const id of ids){const m=(typeof ST!=='undefined'&&ST.byId[id])||null;if(!m||!isFav(m))continue;const o=FP[id];const nm=`${sur(m.players[0])} – ${sur(m.players[1])}`;
   const done=TenisLive.liveSplit(m.sets,m.status).done;if(o){if(o.status==='upcoming'&&m.status==='live')notify(`▶ Začal zápas ${nm}`);
    else if(m.status==='finished'&&o.status!=='finished')notify(`🏁 Konec: ${nm} ${m.sets.map(s=>s.join(':')).join(' ')}`);else if(done.length>o.sets)notify(`Set: ${nm} ${m.sets.map(s=>s.join(':')).join(' ')}`)}
-  FP[id]={status:m.status,sets:done.length}}}
+  const sw=swingCheck(o&&o.pn,m);if(sw)notify(sw.text);
+  FP[id]={status:m.status,sets:done.length,pn:sw?sw.p:(o&&o.pn!=null?o.pn:livePr(m))}}}
+const SWING=.15;function livePr(m){return m.live&&m.live.match!=null?m.live.match:null}
+// velký zvrat: živá pravděpodobnost se od poslední zprávy posunula aspoň o 15 procentních bodů
+function swingCheck(prev,m){const p=livePr(m);if(p==null||prev==null||m.status!=='live')return null;if(Math.abs(p-prev)<SWING)return null;
+ const lead=p>=.5?sur(m.players[0]):sur(m.players[1]);return {p,text:`📈 Zvrat: ${sur(m.players[0])} – ${sur(m.players[1])}, šance ${Math.round(p*100)} : ${Math.round((1-p)*100)} % (${lead} vede)`}}
 async function askNotif(){if(!window.Notification){toast('Tento prohlížeč systémová upozornění bez serveru nepodporuje – upozornění se ukážou v aplikaci, dokud je otevřená.');return}
  const r=await Notification.requestPermission();toast(r==='granted'?'Upozornění povolena (jen když je aplikace otevřená nebo na pozadí v prohlížeči).':'Upozornění nepovolena – zůstanou jen v aplikaci.')}
 // ---- tažení dolů = obnovit ----

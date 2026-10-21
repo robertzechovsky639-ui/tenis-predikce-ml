@@ -15,8 +15,15 @@ async def lifespan(app):
     global SVC
     SVC = Service(demo=os.environ.get("TENIS_DEMO") == "1")
     task = None if os.environ.get("TENIS_NO_POLL") == "1" else asyncio.create_task(SVC.run())
+    async def track_loop():  # predikce se musí zachytit dřív, než zápas skončí
+        while True:
+            await asyncio.sleep(60)
+            try: track_record()
+            except Exception as e: print("track:", e)
+    ttask = None if task is None else asyncio.create_task(track_loop())
     yield
-    if task: task.cancel()
+    for t in (task, ttask):
+        if t: t.cancel()
 
 app = FastAPI(title="Tenis živě · predikce", lifespan=lifespan)
 
@@ -52,6 +59,21 @@ def predict(a: str, b: str, surface: str = "Hard", best_of: int = 3, level: int 
 def markov_ep(p: float, sa: int = 0, sb: int = 0, ga: int = 0, gb: int = 0, pa: int = 0, pb: int = 0, server: int = 0, female: int = 0, best_of: int = 3):
     sets = [(6, 0)] * sa + [(0, 6)] * sb
     return markov.live(p, sets, (ga, gb), (pa, pb), server or None, bool(female), best_of)
+
+TRACK_FILE = F.ROOT / "data" / "track.json"
+
+@app.get("/api/track")
+def track_record():
+    """Historie predikcí (uložených před zápasem) vs. výsledky; průběžně ukládá do data/track.json."""
+    import track
+    prev = {}
+    if TRACK_FILE.exists():
+        try: prev = {r["id"]: r for r in json.load(open(TRACK_FILE)).get("rows", [])}
+        except (ValueError, KeyError): prev = {}
+    allm = [m for d in SVC.days.values() for m in d]
+    rows, out = track.publish(prev, allm)
+    tmp = TRACK_FILE.with_suffix(".tmp"); json.dump(dict(rows=out["rows"]), open(tmp, "w"), ensure_ascii=False); tmp.replace(TRACK_FILE)
+    out.pop("rows"); return out
 
 @app.get("/api/model")
 def model(): return json.load(open(F.ROOT / "data" / "model" / "metrics.json"))

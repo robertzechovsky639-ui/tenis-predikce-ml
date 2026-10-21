@@ -324,6 +324,7 @@ async function staticApi(u) { const url = new URL(u, location.href); const q = u
   if (path === '/api/matches') { const d = +q.get('day'); return { day: d, status: ST.status, matches: ST.all.filter(m => m.day === d) } }
   if (path === '/api/status') return ST.status;
   if (path === '/api/model') return j('data/model.json');
+  if (path === '/api/track') return j('data/track.json');
   if (path.startsWith('/api/match/')) { const id = decodeURIComponent(path.slice(11)); const m = ST.byId[id]; let det = {};
     if (!/^(ss|s365)-/.test(id)) try { det = await j('data/m/' + encodeURIComponent(id) + '.json') } catch (e) { }
     if (m && m.status !== 'finished') await oddsFor(m);

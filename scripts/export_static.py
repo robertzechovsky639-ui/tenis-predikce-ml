@@ -67,6 +67,11 @@ def main():
             json.dump(det, open(OUT / "data" / "m" / f"{m['id']}.json", "w"), ensure_ascii=False, separators=(",", ":"))
     P = svc.P; s = P.s
     json.dump(dict(generated=time.time(), status=svc.status, matches=allm), open(OUT / "data" / "matches.json", "w"), ensure_ascii=False, separators=(",", ":"))
+    # track record: předchozí historie z publikovaného webu + nové predikce před zápasem
+    import track
+    prev = track.fetch_prev(os.environ.get("TENIS_TRACK_URL", "https://robertzechovsky639-ui.github.io/tenis-predikce-ml/data/track.json"))
+    _, tj = track.publish(prev, allm)
+    json.dump(tj, open(OUT / "data" / "track.json", "w"), ensure_ascii=False, separators=(",", ":"))
     mj = json.load(open(F.ROOT / "data" / "model" / "metrics.json"))
     mj["incremental"] = dict(applied=n_inc, at=time.time())
     hp = F.ROOT / "data" / "model" / "retrain_history.json"; mj["history"] = json.load(open(hp)) if hp.exists() else []
