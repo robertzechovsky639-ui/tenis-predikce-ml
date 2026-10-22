@@ -60,7 +60,10 @@
         else surnames.push(tok);
       }
       for (const part of trail[2].split(/\s+/)) {
-        const tok = (toks(part)[0] || '');
+        const pt = toks(part);
+        // 'J.J.' / 'J.-P.' = víc iniciál v jednom slově (Flashscore). Dřív se brala jen první.
+        if (pt.length > 1 && pt.every(t => t.length === 1)) { for (const t of pt) initials.push(t); continue; }
+        const tok = (pt[0] || '');
         if (!tok || NAME_PARTICLE.has(tok)) continue;
         if (tok.length === 1) initials.push(tok);
         else given.push(tok);
