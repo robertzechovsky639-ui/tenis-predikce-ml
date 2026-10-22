@@ -316,7 +316,9 @@ function startSources(onChange) { const plan = pollPlan(); SOURCES.sofascore.bas
     if (changed.size && Src.cur === token) onChange([...changed]); setTimeout(run, document.hidden ? Math.max(Src.iv, 15000) : Src.iv); };
   setTimeout(run, lag[k] || 0); } }
 // Flashscore (Challenger/ITF) – každých 20 s, pokud prohlížeč povolí CORS s hlavičkou x-fsign
-async function fsTick() { try { const r = await fetch('https://global.flashscore.ninja/2/x/feed/f_2_0_2_en_1', { headers: { 'x-fsign': 'SW9D1eZo' }, cache: 'no-store' }); const t = await r.text(); ST.srcOk.fs = Date.now(); const ch = [];
+// Adresa Cloudflare Workeru (cloudflare/worker.js), např. 'https://tenis-fs-proxy.<ucet>.workers.dev'. Prázdné = Flashscore se nenačítá.
+const FS_PROXY = '';
+async function fsTick() { const url = TenisLive.fsFeedUrl(FS_PROXY); if (!url) return []; const r = await fetch(url, { cache: 'no-store' }); if (!r.ok) throw new Error('fs proxy ' + r.status); try { const t = await r.text(); ST.srcOk.fs = Date.now(); const ch = [];
   for (const rec of t.split('~')) { const f = {}; for (const kv of rec.split('¬')) { const i = kv.indexOf('÷'); if (i > 0) f[kv.slice(0, i)] = kv.slice(i + 1) }
     if (!f.AA) continue; const m = ST.byId['fs-' + f.AA] || ST.all.find(x => x.fs && x.fs.id === f.AA); if (!m || m.src === 'ESPN' && m.server) continue;
     const sets = []; for (const [a, b] of [['BA', 'BB'], ['BC', 'BD'], ['BE', 'BF'], ['BG', 'BH'], ['BI', 'BJ']]) if (f[a] !== undefined && f[b] !== undefined && f[a] !== '') sets.push([+f[a], +f[b]]);
@@ -329,9 +331,10 @@ async function fsTick() { try { const r = await fetch('https://global.flashscore
     if (m.status !== 'live' && m.ts) m.day = TenisLive.dayOffset(m.ts);
     liveCalc(m); ch.push(m.id); } return ch } catch (e) { ST.srcOk.fsErr = String(e); return [] } }
 // Flashscore smyčka jen když běží živý zápas s Flashscore id (hlavně ITF/Challenger). Feed je velký, proto řidší.
-function fsLoop(onChange) { const run = async () => { let wait = slowNet() ? 15000 : 8000;
-    try { if (!document.hidden && ST.all.some(m => m.status === 'live' && m.fs)) { const ch = await fsTick(); if (ch.length) onChange(ch); } } catch (e) { wait = 20000 }
-    setTimeout(run, document.hidden ? 30000 : wait) }; setTimeout(run, 2000) }
+function fsLoop(onChange) { if (!TenisLive.fsFeedUrl(FS_PROXY)) return; let wait = TenisLive.FS_MIN_WAIT; const run = async () => {
+    try { if (!document.hidden && ST.all.some(m => m.status === 'live' && m.fs)) { const ch = await fsTick(); if (ch.length) onChange(ch); } wait = TenisLive.fsBackoff(wait, true); if (slowNet()) wait = 15000 }
+    catch (e) { ST.srcOk.fsErr = String(e); wait = TenisLive.fsBackoff(wait, false) }
+    setTimeout(run, document.hidden ? Math.max(30000, wait) : wait) }; setTimeout(run, 2000) }
 async function oddsFor(m) { if (!m.fs) return null; try { const d = (await j(`https://global.ds.lsapp.eu/odds/pq_graphql?_hash=oce&eventId=${m.fs.id}&projectId=2&geoIpCode=CZ&geoIpSubdivisionCode=CZ10`)).data.findOddsByEventId || {};
   const names = {}; for (const g of d.settings?.bookmakers || []) if (g.bookmaker) names[g.bookmaker.id] = g.bookmaker.name; const res = [];
   for (const b of d.odds || []) { if (b.bettingType !== 'HOME_AWAY' || b.bettingScope !== 'FULL_TIME') continue; const o = {}; for (const x of b.odds || []) o[x.eventParticipantId] = x;

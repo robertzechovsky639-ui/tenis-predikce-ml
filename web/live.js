@@ -366,6 +366,10 @@
     if (status === 'live' && s.length && finishedSet(s[s.length - 1]) && !matchWinner(s, bestOf)) s.push([0, 0]);
     return s;
   }
+  // Flashscore přes Cloudflare proxy: prázdná adresa = vypnuto; chyby -> exponenciální backoff 8 s .. 5 min
+  const FS_MIN_WAIT = 8000, FS_MAX_WAIT = 300000;
+  function fsFeedUrl(proxy) { proxy = String(proxy || '').trim().replace(/\/+$/, ''); return proxy ? proxy + '/feed/f_2_0_2_en_1' : null; }
+  function fsBackoff(prev, ok) { if (ok) return FS_MIN_WAIT; const p = prev > 0 ? prev : FS_MIN_WAIT / 2; return Math.min(FS_MAX_WAIT, Math.max(FS_MIN_WAIT, p * 2)); }
   function fsLiveStatus(st, det) {
     // Stejné kódy jako backend/sources.py: AB 1/2/3 a AC skreč / w.o. / zrušeno.
     st = st | 0; det = det | 0;
@@ -755,7 +759,7 @@
     return reportedServer(g.score.scoring === -1 ? sv : 3 - sv, same);
   }
   root.TenisLive = {
-    sofaStale, parseFsPoints, pbpServer, tsFar, STALE_LIVE_S,
+    sofaStale, parseFsPoints, fsFeedUrl, fsBackoff, FS_MIN_WAIT, FS_MAX_WAIT, pbpServer, tsFar, STALE_LIVE_S,
     toks, isPlaceholder, relaxKeys, buildIndex, matchPlayer, samePlayer, samePair, canonTournament, preferKeep, sameFixture, absorbMatch, dedupeMatches, eloFromRank, tourElo, fallbackPred,
     normSets, pointRank, cmpScore, isDeuceReset, finishedSet, liveSplit, displaySets, dayOffset, pragueDate, fsLiveStatus, matchWinner, sealIfDecided, closeFinishedTb, tbWinner, tbTarget, parseSofaScore, map365Points, reportedServer, tbNow, tbView, applyLive, MIN_HISTORY, RANK_ELO, TOUR_PRIOR
   };
