@@ -215,10 +215,8 @@ async function sofaDetail(onChange) { let i = 0;
       if (onScreen.size) L = L.filter(m => m.id === open || onScreen.has(m.id)); else L = L.slice(0, 4);
       if (L.length && !document.hidden) { const m = L[i++ % L.length]; const ch = [];
         if ((m.srvTrust || 0) < 3 && !m.no_pbp) { const d = await j(`https://api.sofascore1.com/api/v1/event/${m.ssid}/point-by-point`).catch(e => { if (/404/.test(e)) { m.no_pbp = true; return {} } throw e }); const g = d.pointByPoint?.[0]?.games?.[0];
-          if (g && g.score && g.score.scoring === -1) { const cur = m.sets && m.sets.length ? m.sets[m.sets.length - 1] : null;
-            const hs = g.score.homeScore | 0, as = g.score.awayScore | 0;
-            const aligned = cur && hs === (m.ss_same ? cur[0] : cur[1]) && as === (m.ss_same ? cur[1] : cur[0]);
-            const sv = aligned ? TenisLive.reportedServer(g.score.serving, m.ss_same) : null;
+          if (g && g.score) { const cur = m.sets && m.sets.length ? m.sets[m.sets.length - 1] : null;
+            const sv = TenisLive.pbpServer(g, cur, m.ss_same);
             if (sv && consider(m, { status: m.status, sets: m.sets, pts: m.pts, server: sv, srvTrust: 3, srv_src: 'pbp', src_pts: m.src_pts }, { src: 'sofaDetail', t0: Date.now() }, null)) ch.push(m.id); } }
         if (!m.odds && !(m.ss_odds_t > Date.now() - 60000)) { m.ss_odds_t = Date.now(); const d = await j(`https://api.sofascore1.com/api/v1/event/${m.ssid}/odds/1/featured`).catch(e => { if (/404/.test(e)) return {}; throw e });
           const f = d.featured?.default; if (f && f.marketId === 1 && !f.suspended) { const c = {}; for (const x of f.choices || []) c[x.name] = frac(x.fractionalValue);
@@ -305,7 +303,7 @@ async function loadRanks(onChange) {
 }
 const SOURCES = { sofascore: { fn: srcSofa, base: 1500 }, s365: { fn: src365, base: 2500 }, espn: { fn: srcESPN, base: 4000 } };
 function startSources(onChange) { const plan = pollPlan(); SOURCES.sofascore.base = plan.sofa; SOURCES.s365.base = plan.s365; SOURCES.espn.base = plan.espn;
-  sofaDetail(onChange); sofaStats(onChange); scheduleFallback(onChange); ensurePlayers().then(() => { sofaSchedule(onChange); loadRanks(onChange); }); const lag = plan.lag;
+  sofaDetail(onChange); sofaStats(onChange); fsLoop(onChange); scheduleFallback(onChange); ensurePlayers().then(() => { sofaSchedule(onChange); loadRanks(onChange); }); const lag = plan.lag;
   for (const [k, Src] of Object.entries(SOURCES)) { Src.iv = Src.base; Src.lat = [];
   const run = async () => { const changed = new Set(), t0 = performance.now();
     const plan = pollPlan(); Src.base = k === 'sofascore' ? plan.sofa : k === 's365' ? plan.s365 : plan.espn;
@@ -325,10 +323,15 @@ async function fsTick() { try { const r = await fetch('https://global.flashscore
     const status = TenisLive.fsLiveStatus(+f.AB, +f.AC);
     if (status !== 'live' && status !== 'finished') continue;
     const upd = { status, sets, src_pts: 'Flashscore' };
+    if (status === 'live') { const fp = TenisLive.parseFsPoints(f, sets); if (fp) { upd.pts = fp.pts; upd.pts_raw = fp.pts_raw; if (fp.server) { upd.server = fp.server; upd.srvTrust = 2; upd.srv_src = 'fs'; } } }
     if (status === 'finished') upd.winner = +f.AS || 0;
     if (!TenisLive.applyLive(m, upd, { src: 'fs', t0: Date.now() }, () => true)) continue;
     if (m.status !== 'live' && m.ts) m.day = TenisLive.dayOffset(m.ts);
     liveCalc(m); ch.push(m.id); } return ch } catch (e) { ST.srcOk.fsErr = String(e); return [] } }
+// Flashscore smyčka jen když běží živý zápas s Flashscore id (hlavně ITF/Challenger). Feed je velký, proto řidší.
+function fsLoop(onChange) { const run = async () => { let wait = slowNet() ? 15000 : 8000;
+    try { if (!document.hidden && ST.all.some(m => m.status === 'live' && m.fs)) { const ch = await fsTick(); if (ch.length) onChange(ch); } } catch (e) { wait = 20000 }
+    setTimeout(run, document.hidden ? 30000 : wait) }; setTimeout(run, 2000) }
 async function oddsFor(m) { if (!m.fs) return null; try { const d = (await j(`https://global.ds.lsapp.eu/odds/pq_graphql?_hash=oce&eventId=${m.fs.id}&projectId=2&geoIpCode=CZ&geoIpSubdivisionCode=CZ10`)).data.findOddsByEventId || {};
   const names = {}; for (const g of d.settings?.bookmakers || []) if (g.bookmaker) names[g.bookmaker.id] = g.bookmaker.name; const res = [];
   for (const b of d.odds || []) { if (b.bettingType !== 'HOME_AWAY' || b.bettingScope !== 'FULL_TIME') continue; const o = {}; for (const x of b.odds || []) o[x.eventParticipantId] = x;

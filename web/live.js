@@ -729,8 +729,30 @@
   // Stejná dvojice hráčů, ale začátek o víc než 12 h jinde = jiný zápas (např. zítřejší odveta v rozpisu).
   const FAR_S = 12 * 3600;
   function tsFar(a, b) { return !!(a && b && Math.abs(a - b) > FAR_S); }
+  // Flashscore: WA/WB = body aktuálního gemu (0/15/30/40/A, v tiebreaku čísla), WC = kdo podává (1/2).
+  // Pro ITF je to jediný zdroj bodů a podávajícího – Sofascore u ITF posílá jen gemy.
+  function parseFsPoints(f, sets) {
+    if (!f || f.WA === undefined || f.WB === undefined || f.WA === '' || f.WB === '') return null;
+    const cur = sets && sets.length ? sets[sets.length - 1] : null;
+    const tb = !!(cur && cur[0] === 6 && cur[1] === 6);
+    const val = x => (String(x).toUpperCase() === 'A' ? 50 : (+x || 0));
+    const raw = [val(f.WA), val(f.WB)];
+    if ([f.WA, f.WB].some(x => !/^(\d+|A)$/i.test(String(x)))) return null;
+    const pts = tb ? raw.slice() : map365Points(raw[0], raw[1]);
+    const server = reportedServer(f.WC, true);
+    return { pts, pts_raw: raw, server };
+  }
+  // Sofascore point-by-point u ITF nemá rozehraný gem, jen dohrané. Další gem podává soupeř toho,
+  // kdo podával poslední dohraný gem – ale jen když ten gem sedí na aktuální skóre setu.
+  function pbpServer(g, cur, same) {
+    if (!g || !g.score || !cur) return null;
+    const hs = g.score.homeScore | 0, as = g.score.awayScore | 0;
+    if (hs !== (same ? cur[0] : cur[1]) || as !== (same ? cur[1] : cur[0])) return null;
+    const sv = +g.score.serving; if (sv !== 1 && sv !== 2) return null;
+    return reportedServer(g.score.scoring === -1 ? sv : 3 - sv, same);
+  }
   root.TenisLive = {
-    sofaStale, tsFar, STALE_LIVE_S,
+    sofaStale, parseFsPoints, pbpServer, tsFar, STALE_LIVE_S,
     toks, isPlaceholder, relaxKeys, buildIndex, matchPlayer, samePlayer, samePair, canonTournament, preferKeep, sameFixture, absorbMatch, dedupeMatches, eloFromRank, tourElo, fallbackPred,
     normSets, pointRank, cmpScore, isDeuceReset, finishedSet, liveSplit, displaySets, dayOffset, pragueDate, fsLiveStatus, matchWinner, sealIfDecided, closeFinishedTb, tbWinner, tbTarget, parseSofaScore, map365Points, reportedServer, tbNow, tbView, applyLive, MIN_HISTORY, RANK_ELO, TOUR_PRIOR
   };
