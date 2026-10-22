@@ -317,7 +317,7 @@ function startSources(onChange) { const plan = pollPlan(); SOURCES.sofascore.bas
   setTimeout(run, lag[k] || 0); } }
 // Flashscore (Challenger/ITF) – každých 20 s, pokud prohlížeč povolí CORS s hlavičkou x-fsign
 // Adresa Cloudflare Workeru (cloudflare/worker.js), např. 'https://tenis-fs-proxy.<ucet>.workers.dev'. Prázdné = Flashscore se nenačítá.
-const FS_PROXY = '';
+const FS_PROXY = 'https://tenis-fs-proxy.robertzechovsky639.workers.dev';
 async function fsTick() { const url = TenisLive.fsFeedUrl(FS_PROXY); if (!url) return []; const r = await fetch(url, { cache: 'no-store' }); if (!r.ok) throw new Error('fs proxy ' + r.status); try { const t = await r.text(); ST.srcOk.fs = Date.now(); const ch = [];
   for (const rec of t.split('~')) { const f = {}; for (const kv of rec.split('¬')) { const i = kv.indexOf('÷'); if (i > 0) f[kv.slice(0, i)] = kv.slice(i + 1) }
     if (!f.AA) continue; const m = ST.byId['fs-' + f.AA] || ST.all.find(x => x.fs && x.fs.id === f.AA); if (!m || m.src === 'ESPN' && m.server) continue;
